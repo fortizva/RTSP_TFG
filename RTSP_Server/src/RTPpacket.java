@@ -136,8 +136,7 @@ public class RTPpacket {
 			payload[i] = data[i];
 		}
 
-		// ! Do not forget to uncomment method printheader() below !
-		printheader();
+		//printheader();
 	}
 
 	// --------------------------
