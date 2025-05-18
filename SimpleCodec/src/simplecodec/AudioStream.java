@@ -2,11 +2,9 @@ package simplecodec;
 
 
 //AudioStream
-
-import java.io.*;
-import java.net.URL;
-import java.nio.*;
-import javax.sound.sampled.*;
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileInputStream;
 
 public class AudioStream {
 
@@ -24,9 +22,9 @@ public class AudioStream {
   public AudioStream(String filename) throws Exception{
 
      File file = new File (filename);  
-            if (file==null)
-                System.out.println("Error: No file to read");
-             fis= new BufferedInputStream (new FileInputStream(file));
+     if (file.exists() == false || file.isFile() == false)
+            System.out.println("Error: No file to read");
+     fis= new BufferedInputStream (new FileInputStream(file));
                 
   }
   public void setFPS(int _fps){
@@ -50,11 +48,10 @@ public class AudioStream {
   public int getnextchunk(byte[] frame) throws Exception
   {
     int length = 0;
-    String length_string;
-    int lenght =(int)(this.SamplingRate*(this.bitDepth/8)*this.channelCount/this.fps);//Be ware!!! [sampleRate * (bitDepth / 8) * channelCount (Bps)]/10 (1 packet in 0,1 sec) 
+    length =(int)(this.SamplingRate*(this.bitDepth/8)*this.channelCount/this.fps);//Be ware!!! [sampleRate * (bitDepth / 8) * channelCount (Bps)]/10 (1 packet in 0,1 sec) 
     
   // returns the length of data copied in buffer
-    int count = fis.read(frame, 0,lenght);
+    int count = fis.read(frame, 0,length);
 
     return(count);
   }

@@ -4,12 +4,12 @@
  */
 package simplecodec;
 
-import java.io.*;
-import javax.swing.*;
-import java.nio.*;
-import java.awt.*;
-import java.lang.*;
-import java.math.BigInteger;
+import java.awt.FileDialog;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.ByteBuffer;
+
+import javax.swing.JFrame;
 
 /**
  *
@@ -17,7 +17,9 @@ import java.math.BigInteger;
  */
 public class SimpleCodec extends JFrame {
     
-    byte Version;   
+    private static final long serialVersionUID = 1L;
+    
+	byte Version;   
     byte fps;
     int numFrames;
     int width;
@@ -146,7 +148,7 @@ public class SimpleCodec extends JFrame {
         faudio.setSampleRate(SamplingRate);
         
         File file = new File (filename);  
-        if (file==null)
+        if (file.exists() == false || file.isFile() == false)
                 System.out.println("Error: No file to read");
         try{
             foutput= new  FileOutputStream(file);

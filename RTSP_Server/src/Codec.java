@@ -102,8 +102,8 @@ public class Codec {
   
     public int getnextchunk(byte[] frame) throws Exception
   {
-    int length = 0;
-    String length_string;
+    //int length = 0;
+    //String length_string;
     int lenght =(int)(this.SamplingRate*(this.bitDepth/8)*this.channelCount/this.fps);//Be ware!!! [sampleRate * (bitDepth / 8) * channelCount (Bps)]/10 (1 packet in 0,1 sec) 
     
   // returns the length of data copied in buffer
@@ -114,5 +114,11 @@ public class Codec {
         
     public int getNumFrames(){
         return numFrames;
+    }
+    
+    public void close() throws IOException {
+    	if(fis != null) {	
+    		fis.close();
+		}
     }
 }
