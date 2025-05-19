@@ -221,7 +221,7 @@ public class Server extends JFrame implements ActionListener {
 	     
 		try {
 			//if the current image nb is less than the length of the video
-		    if (imagenb+1 < VIDEO_LENGTH) {
+		    if (imagenb < VIDEO_LENGTH) {
 				// --- Send video frame ---
 				//update current imagenb
 				imagenb++;
@@ -245,7 +245,7 @@ public class Server extends JFrame implements ActionListener {
 		    
 			
 		  //if the current image nb is less than the length of the video
-		    if (imagenb+1 < VIDEO_LENGTH) {
+		    if (imagenb < VIDEO_LENGTH) {
 				// --- Send audio chunk ---
 				//update current imagenb
 				imagenb++;

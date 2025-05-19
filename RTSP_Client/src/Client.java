@@ -697,6 +697,9 @@ public class Client {
 				audioBuffer.clear();
 			}
 			if (speaker != null) {
+				speaker.drain();
+				speaker.flush();
+				speaker.stop();
 				speaker.close();
 			}
 			// Dispose GUI
