@@ -104,10 +104,10 @@ public class Codec {
   {
     //int length = 0;
     //String length_string;
-    int lenght =(int)(this.SamplingRate*(this.bitDepth/8)*this.channelCount/this.fps);//Be ware!!! [sampleRate * (bitDepth / 8) * channelCount (Bps)]/10 (1 packet in 0,1 sec) 
+    int length =(int)(this.SamplingRate*(this.bitDepth/8.0)*this.channelCount/this.fps);//Be ware!!! [sampleRate * (bitDepth / 8) * channelCount (Bps)]/10 (1 packet in 0,1 sec) 
     
   // returns the length of data copied in buffer
-    int count = fis.read(frame, 0,lenght);
+    int count = fis.read(frame, 0,length);
     return(count);
 
   }    

@@ -139,15 +139,10 @@ public class Client {
 		// Frame
 		f.addWindowListener(new WindowAdapter() {
 			public void windowClosing(WindowEvent e) {
-				System.exit(0);
+				cleanExit();
 			}
 		});
-
-		/*
-		 * stats.addWindowListener(new WindowAdapter() { public void
-		 * windowClosing(WindowEvent e) { System.exit(0); } });
-		 */
-
+		
 		// Buttons
 		buttonPanel.setLayout(new GridLayout(1, 0));
 		buttonPanel.add(setupButton);
@@ -261,18 +256,7 @@ public class Client {
 			System.out.println("Verbose mode: ACTIVE");
 		}
 
-		/*
-		 * // Initalize audio if extension is RAW
-		 * if (VideoFileName.endsWith(".raw")) {
-		 * audio_mode = true;
-		 * if (verbose)
-		 * System.out.
-		 * println("Audio file extension detected, initializing audio line...");
-		 * theClient.audio_initialization();
-		 * }
-		 */
-
-		// Audio is now always initialized
+		// Initialize soundcard
 		theClient.audio_initialization();
 
 		// Establish a TCP connection with the server to exchange RTSP messages
@@ -291,11 +275,7 @@ public class Client {
 	// Handler for buttons
 	// ------------------------------------
 
-	// .............
-	// TO COMPLETE
-	// .............
-
-	// Handler for Setup button
+	// Handler for SETUP button
 	// -----------------------
 	class setupButtonListener implements ActionListener {
 		public void actionPerformed(ActionEvent e) {
@@ -311,11 +291,10 @@ public class Client {
 					RTPsocket = new DatagramSocket(RTP_RCV_PORT);
 					// set TimeOut value of the socket to 5msec.
 					RTPsocket.setSoTimeout(5000);
-					// ....
 
 				} catch (SocketException se) {
 					System.out.println("Socket exception: " + se);
-					System.exit(0);
+					cleanExit();
 				}
 
 				// init RTSP sequence number
@@ -338,7 +317,7 @@ public class Client {
 		}
 	}
 
-	// Handler for Play button
+	// Handler for PLAY button
 	// -----------------------
 	class playButtonListener implements ActionListener {
 		public void actionPerformed(ActionEvent e) {
@@ -348,7 +327,6 @@ public class Client {
 
 			if (state == READY) {
 				// increase RTSP sequence number
-				// .....
 				RTSPSeqNb++;
 
 				// Send PLAY message to the server
@@ -359,7 +337,6 @@ public class Client {
 					System.out.println("Invalid Server Response");
 				else {
 					// change RTSP state and print out new state
-					// .....
 					state = Client.PLAYING;
 					if (verbose)
 						System.out.println("New RTSP state: PLAYING (" + state + ")");
@@ -376,7 +353,7 @@ public class Client {
 		}
 	}
 
-	// Handler for Pause button
+	// Handler for PAUSE button
 	// -----------------------
 	class pauseButtonListener implements ActionListener {
 		public void actionPerformed(ActionEvent e) {
@@ -386,7 +363,6 @@ public class Client {
 
 			if (state == PLAYING) {
 				// increase RTSP sequence number
-				// ........
 				RTSPSeqNb++;
 
 				// Send PAUSE message to the server
@@ -397,7 +373,6 @@ public class Client {
 					System.out.println("Invalid Server Response");
 				else {
 					// change RTSP state and print out new state
-					// ........
 					state = Client.READY;
 					if (verbose)
 						System.out.println("New RTSP state: READY (" + state + ")");
@@ -412,7 +387,7 @@ public class Client {
 		}
 	}
 
-	// Handler for Teardown button
+	// Handler for TEARDOWN button
 	// -----------------------
 	class tearButtonListener implements ActionListener {
 		public void actionPerformed(ActionEvent e) {
@@ -421,7 +396,6 @@ public class Client {
 				System.out.println("Teardown Button pressed !");
 
 			// increase RTSP sequence number
-			// ..........
 			RTSPSeqNb++;
 
 			// Send TEARDOWN message to the server
@@ -432,7 +406,6 @@ public class Client {
 				System.out.println("Invalid Server Response");
 			else {
 				// change RTSP state and print out new state
-				// ........
 				state = Client.INIT;
 				if (verbose)
 					System.out.println("New RTSP state: INIT(" + state + ")");
@@ -443,7 +416,7 @@ public class Client {
 				// RTPSocketListener should stop by itself on state change
 
 				// exit
-				System.exit(0);
+				cleanExit();
 			}
 		}
 	}
@@ -454,7 +427,9 @@ public class Client {
 	
 	class RTPSocketListener implements Runnable {
 		public void run() {
-			while(state != Client.INIT) {
+			// Keep listening to the RTP socket until the state is INIT or the thread is interrupted (End of program)
+			while(state != Client.INIT && !Thread.currentThread().isInterrupted()) {
+				// If player is paused ignore timeouts and keep waiting for the state to change
 				if (state == Client.PLAYING) {
 					// Construct a DatagramPacket to receive data from the UDP socket
 					rcvdp = new DatagramPacket(buf, buf.length);
@@ -493,6 +468,7 @@ public class Client {
 						// Bytes received
 						received_bytes += rcvdp.getLength();
 						// -----------------------------
+						// Update stats text (invokeLater to avoid deadlock)
 						SwingUtilities.invokeLater(()->statsLabel.setText(getStats()));
 						// ------------------------------
 						
@@ -505,12 +481,17 @@ public class Client {
 							System.out.println("Unknown payload type: " + rtp_packet.getsequencenumber());
 						}
 					} catch (InterruptedIOException iioe) {
+						// We can ignore this exception as it is just a timeout
 						// System.out.println("Nothing to read");
+					} catch (InterruptedException ie) {
+						System.out.println("[RTPSocketListener] InterruptedException caught: " + ie);
+						break; // Exit the loop if interrupted
+					} catch (SocketException se) {
+						if(verbose)
+							System.out.println("[RTPSocketListener] Socket closed, exiting thread...");
+						break; // Exit the loop if socket is closed
 					} catch (IOException ioe) {
-						System.out.println("Exception caught: " + ioe);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+						System.out.println("[RTPSocketListener] Exception caught: " + ioe);
 					}
 				}
 			}
@@ -536,13 +517,15 @@ public class Client {
 					// Increment the video frame number
 					last_video_nb++;
 					
-					// FPS calculation
+					// [Stats] FPS calculation
+					// -----------------
 					long now = System.currentTimeMillis();
 					if (now - last_fps_update_time >= 1000) {
 						current_fps = (last_video_nb - last_fps_video_nb) / ((now - last_fps_update_time) / 1000.0);
 						last_fps_video_nb = last_video_nb;
 						last_fps_update_time = now;
 					}
+					// -----------------
 					
 					// get an Image object from the payload bitstream
 					Toolkit toolkit = Toolkit.getDefaultToolkit();
@@ -555,8 +538,7 @@ public class Client {
 				} else {
 				}
 			} catch (InterruptedException ie) {
-				// TODO Auto-generated catch block
-				System.out.println("Exception caught: " + ie);
+				System.out.println("[videoTimerListener] Exception caught: " + ie);
 			}
 		}
 	}
@@ -578,7 +560,7 @@ public class Client {
 				} else {
 				}
 			} catch (InterruptedException ie) {
-				System.out.println("Exception caught: " +ie);
+				System.out.println("[audioTimerListener] Exception caught: " +ie);
 			}
 		}
 	}
@@ -615,8 +597,8 @@ public class Client {
 				RTSPid = Integer.parseInt(tokens.nextToken());
 			}
 		} catch (Exception ex) {
-			System.out.println("Exception caught: " + ex);
-			System.exit(0);
+			System.out.println("[parseServerResponse] Exception caught: " + ex);
+			cleanExit();
 		}
 
 		return (reply_code);
@@ -626,16 +608,10 @@ public class Client {
 	// Send RTSP Request
 	// ------------------------------------
 
-	// .............
-	// TO COMPLETE
-	// .............
-
 	private void send_RTSP_request(String request_type) {
 		try {
 			// Use the RTSPBufferedWriter to write to the RTSP socket
-
-			// write the request line:
-			// RTSPBufferedWriter.write(...);
+			
 			String request_line = VideoFileName + " RTSP/1.0";
 			switch (request_type) {
 				case "SETUP":
@@ -657,18 +633,15 @@ public class Client {
 			if (verbose)
 				System.out.println("C: " + request_line);
 
-			// write the CSeq line:
-			// ......
+			// write the CSeq line
 			RTSPBufferedWriter.write("CSeq: " + RTSPSeqNb + CRLF);
 			if (verbose)
 				System.out.println("C: " + "CSeq: " + RTSPSeqNb + CRLF);
-
-			// check if request_type is equal to "SETUP" and in this case write the
-			// Transport: line advertising to the server the port used to receive the RTP
-			// packets RTP_RCV_PORT
-			// if ....
-			// otherwise, write the Session line from the RTSPid field
-			// else ....
+			/*
+			 * If the request type is "SETUP", 
+			 * write the Transport header to inform the server of the client's RTP receiving port.
+			 * For all other request types, write the Session header with the current RTSP session ID.
+			*/
 			if (request_type.equals("SETUP")) {
 				RTSPBufferedWriter.write("Transport: RTP/UDP; client_port= " + RTP_RCV_PORT + CRLF);
 				if (verbose)
@@ -681,7 +654,63 @@ public class Client {
 
 			RTSPBufferedWriter.flush();
 		} catch (Exception ex) {
-			System.out.println("Exception caught: " + ex);
+			System.out.println("[sendRTSPRequest] Exception caught: " + ex);
+			cleanExit();
+		}
+	}
+	
+	// ------------------------------------
+	// Clean exit
+	// ------------------------------------
+	private void cleanExit() {
+		try {
+			// Stop RTP socket listener thread
+			if (rtpSocketListener != null && rtpSocketListener.isAlive()) {
+				rtpSocketListener.interrupt();
+			}
+			// Stop timers and close soundcard
+			if (videoTimer != null) {
+				videoTimer.stop();
+			}
+			if (audioTimer != null) {
+				audioTimer.stop();
+			}
+			// Close RTP and RTSP sockets
+			if (RTPsocket != null) {
+				RTPsocket.close();
+			}
+			if (RTSPsocket != null) {
+				RTSPsocket.close();
+			}
+			// Close RTSP input and output streams
+			if (RTSPBufferedReader != null) {
+				RTSPBufferedReader.close();
+			}
+			if (RTSPBufferedWriter != null) {
+				RTSPBufferedWriter.close();
+			}
+			// Clear buffers
+			if (videoBuffer != null) {
+				videoBuffer.clear();
+			}
+			if (audioBuffer != null) {
+				audioBuffer.clear();
+			}
+			if (speaker != null) {
+				speaker.close();
+			}
+			// Dispose GUI
+			if (f != null) {
+				f.dispose();
+			}
+			if (stats != null) {
+				stats.dispose();
+			}
+		} catch (IOException e) {
+			System.out.println("[cleanExit] IOException caught: " + e);
+		} catch (Exception e) {
+			System.out.println("[cleanExit] Exception caught: " + e);
+		} finally {
 			System.exit(0);
 		}
 	}
