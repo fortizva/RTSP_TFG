@@ -16,6 +16,11 @@
 	</natures>
 	<linkedResources>
 		<link>
+			<name>src/FECpacket.java</name>
+			<type>1</type>
+			<locationURI>WORKSPACE_LOC/RTSP_Server/src/FECpacket.java</locationURI>
+		</link>
+		<link>
 			<name>src/RTPpacket.java</name>
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/RTSP_Server/src/RTPpacket.java</locationURI>

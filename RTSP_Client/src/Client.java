@@ -234,10 +234,64 @@ public class Client {
 		return s;
 	}
 
+	private static void testFECpacket() {
+		// Create dummy RTP packets
+		RTPpacket[] testPackets = new RTPpacket[3];
+		for (int i = 0; i < testPackets.length; i++) {
+		    byte[] payload = new byte[10];
+		    for (int j = 0; j < payload.length; j++) {
+		        payload[j] = (byte) (i * 10 + j);
+		    }
+		    testPackets[i] = new RTPpacket(MJPEG_TYPE, i, 0, payload, payload.length);
+		}
+		
+		// Create FEC packet
+		FECpacket fec = new FECpacket(testPackets);
+		
+		// Simulate loss of the second packet (index 1)
+		int lostIndex = 1;
+		
+		// Recover the lost packet by XORing FEC payload with the other packets
+		byte[] recovered = new byte[testPackets[lostIndex].getlength()];
+		byte[] fecPayload = new byte[fec.getFECPacketSize()];
+		fec.getFECPacket(fecPayload);
+		
+		// Offset to FEC payload in FEC packet
+		int fecPayloadOffset = 4 + fec.getProtectionMask(new byte[10]);
+		for (int i = 0; i < recovered.length; i++) {
+		    byte val = fecPayload[fecPayloadOffset + i];
+		    for (int j = 0; j < testPackets.length; j++) {
+		        if (j != lostIndex) {
+		            byte[] pkt = new byte[testPackets[j].getlength()];
+		            testPackets[j].getpacket(pkt);
+		            val ^= (i < pkt.length) ? pkt[i] : 0;
+		        }
+		    }
+		    recovered[i] = val;
+		}
+		
+		// Print original and recovered packet for comparison
+		System.out.print("Original:  ");
+		byte[] original = new byte[testPackets[lostIndex].getlength()];
+		testPackets[lostIndex].getpacket(original);
+		for (byte b : original) System.out.printf("%02X ", b);
+		System.out.println();
+		
+		System.out.print("Recovered: ");
+		for (byte b : recovered) System.out.printf("%02X ", b);
+		System.out.println();
+
+	}
+	
 	// ------------------------------------
 	// main
 	// ------------------------------------
 	public static void main(String argv[]) throws Exception {
+		// DEBUG: Create a test FEC packet and try to recover the original RTP packets
+		testFECpacket();
+
+		// DEBUG: End of FECpacket test
+
 		// Create a Client object
 		Client theClient = new Client();
 
