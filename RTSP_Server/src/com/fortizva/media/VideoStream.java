@@ -1,5 +1,6 @@
-
 //VideoStream
+package com.fortizva.media;
+
 
 import java.io.*;
 

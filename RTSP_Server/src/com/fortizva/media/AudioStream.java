@@ -1,5 +1,6 @@
-
 //AudioStream
+package com.fortizva.media;
+
 
 import java.io.BufferedInputStream;
 import java.io.File;

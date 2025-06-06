@@ -1,17 +1,34 @@
-
+package com.fortizva.rtp;
 /* ------------------
    Server
    usage: java Server [RTSP listening port]
    ---------------------- */
 
 
-import java.io.*;
-import java.net.*;
-import java.awt.*;
-import java.util.*;
-import java.awt.event.*;
-import javax.swing.*;
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.StringTokenizer;
+
+import javax.swing.JFrame;
+import javax.swing.JLabel;
 import javax.swing.Timer;
+
+import com.fortizva.media.Codec;
+import com.fortizva.packets.RTPpacket;
 
 public class Server extends JFrame implements ActionListener {
 	
@@ -163,12 +180,12 @@ public class Server extends JFrame implements ActionListener {
 	
 		    //  Init video properties
 		    theServer.VIDEO_LENGTH = theServer.codec.getNumFrames();
-		    theServer.FRAME_PERIOD = (int) (1000/theServer.codec.fps);
+		    theServer.FRAME_PERIOD = (int) (1000/theServer.codec.getFPS());
 		    theServer.timer = new Timer(theServer.FRAME_PERIOD, theServer);
 		    theServer.timer.setInitialDelay(0);
 		    theServer.timer.setCoalesce(true);
 		    if(!theServer.verbose)
-		    	System.out.println("DEBUG: FPS: "+theServer.codec.fps+ " FRAME_PERIOD: "+theServer.FRAME_PERIOD);
+		    	System.out.println("DEBUG: FPS: "+theServer.codec.getFPS()+ " FRAME_PERIOD: "+theServer.FRAME_PERIOD);
 		    
 		    
 		    //init RTP socket

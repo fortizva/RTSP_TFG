@@ -1,3 +1,4 @@
+package com.fortizva.media;
 //VideoStream
 
 import java.io.*;
@@ -111,12 +112,80 @@ public class Codec {
     return(count);
 
   }    
-        
-    public int getNumFrames(){
-        return numFrames;
-    }
     
-    public void close() throws IOException {
+    /**
+	 * @return the version
+	 */
+	public byte getVersion() {
+		return Version;
+	}
+
+
+	/**
+	 * @return the fps
+	 */
+	public byte getFPS() {
+		return fps;
+	}
+
+
+	/**
+	 * @return the numFrames
+	 */
+	public int getNumFrames() {
+		return numFrames;
+	}
+
+
+	/**
+	 * @return the width
+	 */
+	public int getWidth() {
+		return width;
+	}
+
+
+	/**
+	 * @return the heigh
+	 */
+	public int getHeigh() {
+		return heigh;
+	}
+
+
+	/**
+	 * @return the nAudioTracks
+	 */
+	public byte getnAudioTracks() {
+		return nAudioTracks;
+	}
+
+
+	/**
+	 * @return the samplingRate
+	 */
+	public int getSamplingRate() {
+		return SamplingRate;
+	}
+
+
+	/**
+	 * @return the bitDepth
+	 */
+	public byte getBitDepth() {
+		return bitDepth;
+	}
+
+
+	/**
+	 * @return the channelCount
+	 */
+	public byte getChannelCount() {
+		return channelCount;
+	}
+
+
+	public void close() throws IOException {
     	if(fis != null) {	
     		fis.close();
 		}

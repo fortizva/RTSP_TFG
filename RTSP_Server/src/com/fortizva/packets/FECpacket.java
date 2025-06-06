@@ -1,3 +1,4 @@
+package com.fortizva.packets;
 public class FECpacket {
 
 	/* FEC Packet Format
@@ -82,14 +83,14 @@ public class FECpacket {
 		// Prepare FEC packet with default values
 		// Base Sequence Number
 		this.baseSequenceNumber = rtpPackets[0].getsequencenumber();
-		byte[] basesequencebytes = RTPpacket.binarySplitter(this.baseSequenceNumber);
+		byte[] basesequencebytes = BinaryField.binarySplitter(this.baseSequenceNumber);
 		for (int i = 0; i < Math.min(basesequencebytes.length, 2); i++) {
 			// Fill Base Sequence Number in reverse order so the beginning is zeroes
 			fecPacketBytes[1-i] = basesequencebytes[(basesequencebytes.length - 1) - i];
 		}
 		
 		// Mask Length (16 bits)
-		byte[] maskLengthBytes = RTPpacket.binarySplitter(maskLength);
+		byte[] maskLengthBytes = BinaryField.binarySplitter(maskLength);
 		for (int i = 0; i < Math.min(maskLengthBytes.length, 2); i++) {
 			// Fill Mask Length in reverse order so the beginning is zeroes
 			fecPacketBytes[2 + 1 - i] = maskLengthBytes[(maskLengthBytes.length - 1) - i];

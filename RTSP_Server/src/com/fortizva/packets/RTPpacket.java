@@ -1,5 +1,5 @@
-
 //class RTPpacket
+package com.fortizva.packets;
 
 public class RTPpacket {
 
@@ -24,35 +24,6 @@ public class RTPpacket {
 	public int payload_size;
 	// Bitstream of the RTP payload
 	public byte[] payload;
-
-	class BinaryField {
-		public int field, length;
-
-		public BinaryField(int field, int length) {
-			this.field = field;
-			this.length = length;
-		}
-	}
-
-	public static byte binaryBuilder(byte binary, BinaryField ...fields) {
-		byte bin = binary;
-		int current = 0;
-		for(BinaryField i : fields) {
-			bin = (byte)(bin | i.field << (8 - i.length - current));
-			current += i.length;
-		}
-		return bin;
-	}
-	
-	public static byte[] binarySplitter(long value) {
-		byte[] bin = new byte[(int) Math.ceil(Long.toBinaryString(value).length()/8.0)];
-		for(int i = bin.length-1; i >= 0; i--) {
-			bin[bin.length-1 - i] = (byte) ((value >> (8*i)) & 0xFF);
-			//System.out.println(String.format("%8s", Integer.toBinaryString(bin[i] & 0xFF)).replace(' ', '0'));
-		}	
-		
-		return bin;
-	}
 
 	// --------------------------
 	// Constructor of an RTPpacket object from header fields and payload bitstream
@@ -88,6 +59,7 @@ public class RTPpacket {
 		 * |           synchronization source (SSRC) identifier            |
 		 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		 * |            contributing source (CSRC) identifiers             |
+		 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		 * |                             ....                              |
 		 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		 */
@@ -97,29 +69,29 @@ public class RTPpacket {
 
 		// HEADER_SIZE = 12 -> 3bytes * 4
 
-		header [0] = binaryBuilder(header[0],
+		header [0] = BinaryField.binaryBuilder(header[0],
              	new BinaryField(Version, 2),
 				new BinaryField(Padding, 1),
 				new BinaryField(Extension, 1),
 				new BinaryField(CC, 4));
-		header [1] = binaryBuilder(header[1],
+		header [1] = BinaryField.binaryBuilder(header[1],
 		new BinaryField(Marker, 1),
 		new BinaryField(PayloadType, 7));
 		
 		// Sequence number
-		byte[] sequencebytes = binarySplitter(SequenceNumber);
+		byte[] sequencebytes = BinaryField.binarySplitter(SequenceNumber);
 		for(int i = 0; i < Math.min(sequencebytes.length, 2); i++) {
 			header[2+1-i] = sequencebytes[(sequencebytes.length-1) - i];
 		}
 		
 		// TimeStamp
-		byte[] timestampbytes = binarySplitter(TimeStamp);
+		byte[] timestampbytes = BinaryField.binarySplitter(TimeStamp);
 		for(int i = 0; i < Math.min(timestampbytes.length, 4); i++) {
 			header[4+3-i] = timestampbytes[(timestampbytes.length-1) - i];
 		}
 		
 		// SSRC
-		byte[] ssrcbytes = binarySplitter(Ssrc);
+		byte[] ssrcbytes = BinaryField.binarySplitter(Ssrc);
 		for(int i = 0; i < Math.min(ssrcbytes.length, 4); i++) {
 			header[8+3-i] = ssrcbytes[(ssrcbytes.length-1) - i];
 		}

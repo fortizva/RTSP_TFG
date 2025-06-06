@@ -16,14 +16,19 @@
 	</natures>
 	<linkedResources>
 		<link>
-			<name>src/FECpacket.java</name>
+			<name>src/com/fortizva/packets/BinaryField.java</name>
 			<type>1</type>
-			<locationURI>WORKSPACE_LOC/RTSP_Server/src/FECpacket.java</locationURI>
+			<locationURI>WORKSPACE_LOC/RTSP_Server/src/com/fortizva/packets/BinaryField.java</locationURI>
 		</link>
 		<link>
-			<name>src/RTPpacket.java</name>
+			<name>src/com/fortizva/packets/FECpacket.java</name>
 			<type>1</type>
-			<locationURI>PARENT-1-PROJECT_LOC/RTSP_Server/src/RTPpacket.java</locationURI>
+			<locationURI>WORKSPACE_LOC/RTSP_Server/src/com/fortizva/packets/FECpacket.java</locationURI>
+		</link>
+		<link>
+			<name>src/com/fortizva/packets/RTPpacket.java</name>
+			<type>1</type>
+			<locationURI>WORKSPACE_LOC/RTSP_Server/src/com/fortizva/packets/RTPpacket.java</locationURI>
 		</link>
 	</linkedResources>
 	<filteredResources>

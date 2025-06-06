@@ -1,3 +1,4 @@
+package com.fortizva.main;
 /* ------------------
    Client
    usage: java Client [Server hostname] [Server RTSP listening port] [Video file requested]
@@ -41,6 +42,9 @@ import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+
+import com.fortizva.packets.FECpacket;
+import com.fortizva.packets.RTPpacket;
 
 public class Client {
 
