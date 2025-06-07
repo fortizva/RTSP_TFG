@@ -30,12 +30,12 @@ public class RTPpacket {
 	// --------------------------
 	public RTPpacket(int PType, int Framenb, int Time, byte[] data, int data_length) {
 		// fill by default header fields:
-		Version = 2;
-		Padding = 0;
-		Extension = 0;
-		CC = 0;
-		Marker = 0;
-		Ssrc = 0;
+		Version = CommonPacketValues.RTP_VERSION;
+		Padding = CommonPacketValues.RTP_PADDING;
+		Extension = CommonPacketValues.RTP_EXTENSION;
+		CC = CommonPacketValues.RTP_CC;
+		Marker = CommonPacketValues.RTP_MARKER;
+		Ssrc = CommonPacketValues.RTP_SSRC;
 
 		// fill changing header fields:
 		SequenceNumber = Framenb;
@@ -58,7 +58,7 @@ public class RTPpacket {
 		 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		 * |           synchronization source (SSRC) identifier            |
 		 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-		 * |            contributing source (CSRC) identifiers             |
+		 * |            contributing source (CSRC) identifiers             | // Not used
 		 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		 * |                             ....                              |
 		 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+

@@ -239,53 +239,70 @@ public class Client {
 	}
 
 	private static void testFECpacket() {
-		// Create dummy RTP packets
-		RTPpacket[] testPackets = new RTPpacket[3];
-		for (int i = 0; i < testPackets.length; i++) {
-		    byte[] payload = new byte[10];
-		    for (int j = 0; j < payload.length; j++) {
-		        payload[j] = (byte) (i * 10 + j);
-		    }
-		    testPackets[i] = new RTPpacket(MJPEG_TYPE, i, 0, payload, payload.length);
+	    // Create dummy RTP packets with distinct payloads, sequence numbers, and timestamps
+	    RTPpacket[] rtpPackets = new RTPpacket[3];
+	    rtpPackets[0] = new RTPpacket(0, 100, 1000, new byte[] {0x01, 0x02, 0x03}, 3);
+	    rtpPackets[1] = new RTPpacket(0, 101, 2000, new byte[] {0x04, 0x05, 0x06}, 3);
+	    rtpPackets[2] = new RTPpacket(0, 102, 3000, new byte[] {0x07, 0x08, 0x09}, 3);
+	
+	    // Create FECpacket
+	    FECpacket fecPacket = new FECpacket(rtpPackets);
+	
+	    // Retrieve FEC packet bytes
+	    byte[] fecPacketBytes = new byte[fecPacket.getFECPacketSize()];
+	    fecPacket.getFECPacket(fecPacketBytes);
+	
+	    // Print FEC packet bytes in hex format
+	    System.out.println("FEC Packet Bytes:");
+	    for (int i = 0; i < fecPacketBytes.length; i++) {
+			System.out.print(String.format("%02X ", fecPacketBytes[i]));
 		}
-		
-		// Create FEC packet
-		FECpacket fec = new FECpacket(testPackets);
-		
-		// Simulate loss of the second packet (index 1)
-		int lostIndex = 1;
-		
-		// Recover the lost packet by XORing FEC payload with the other packets
-		byte[] recovered = new byte[testPackets[lostIndex].getlength()];
-		byte[] fecPayload = new byte[fec.getFECPacketSize()];
-		fec.getFECPacket(fecPayload);
-		
-		// Offset to FEC payload in FEC packet
-		int fecPayloadOffset = 4 + fec.getProtectionMask(new byte[10]);
-		for (int i = 0; i < recovered.length; i++) {
-		    byte val = fecPayload[fecPayloadOffset + i];
-		    for (int j = 0; j < testPackets.length; j++) {
-		        if (j != lostIndex) {
-		            byte[] pkt = new byte[testPackets[j].getlength()];
-		            testPackets[j].getpacket(pkt);
-		            val ^= (i < pkt.length) ? pkt[i] : 0;
-		        }
-		    }
-		    recovered[i] = val;
-		}
-		
-		// Print original and recovered packet for comparison
-		System.out.print("Original:  ");
-		byte[] original = new byte[testPackets[lostIndex].getlength()];
-		testPackets[lostIndex].getpacket(original);
-		for (byte b : original) System.out.printf("%02X ", b);
-		System.out.println();
-		
-		System.out.print("Recovered: ");
-		for (byte b : recovered) System.out.printf("%02X ", b);
-		System.out.println();
-
+	    System.out.println();
+	    
+	    // Print FEC packet fields with expected values
+	    System.out.println("FEC Packet Fields:");
+	
+	    // Flags
+	    System.out.println("Flags: " + String.format("%02X %02X", fecPacketBytes[0], fecPacketBytes[1]) + 
+	        " | Expected: 00 00");
+	
+	    // Base Sequence Number
+	    int baseSequenceNumber = (fecPacketBytes[2] << 8) | (fecPacketBytes[3] & 0xFF);
+	    System.out.println("Base Sequence Number: " + baseSequenceNumber + 
+	        " | Bytes: " + String.format("%02X %02X", fecPacketBytes[2], fecPacketBytes[3]) + 
+	        " | Expected: 100");
+	
+	    // Timestamp Recovery
+	    int timestampRecovery = (fecPacketBytes[4] << 24) | ((fecPacketBytes[5] & 0xFF) << 16) | 
+	                            ((fecPacketBytes[6] & 0xFF) << 8) | (fecPacketBytes[7] & 0xFF);
+	    System.out.println("Timestamp Recovery: " + timestampRecovery + 
+	        " | Bytes: " + String.format("%02X %02X %02X %02X", fecPacketBytes[4], fecPacketBytes[5], fecPacketBytes[6], fecPacketBytes[7]) + 
+	        " | Expected: 1000 ^ 2000 ^ 3000 = 3968");
+	
+	    // Length Recovery
+	    int lengthRecovery = (fecPacketBytes[8] << 8) | (fecPacketBytes[9] & 0xFF);
+	    System.out.println("Length Recovery: " + lengthRecovery + 
+	        " | Bytes: " + String.format("%02X %02X", fecPacketBytes[8], fecPacketBytes[9]) + 
+	        " | Expected: 3 ^ 3 ^ 3 = 3");
+	
+	    // Protection Length
+	    int protectionLength = (fecPacketBytes[10] << 8) | (fecPacketBytes[11] & 0xFF);
+	    System.out.println("Protection Length: " + protectionLength + 
+	        " | Bytes: " + String.format("%02X %02X", fecPacketBytes[10], fecPacketBytes[11]) + 
+	        " | Expected: 3");
+	
+	    // Protection Mask
+	    System.out.println("Protection Mask: " + String.format("%02X %02X", fecPacketBytes[12], fecPacketBytes[13]) + 
+	        " | Expected: E0 00");
+	
+	    // XOR Payload
+	    System.out.print("XOR Payload: ");
+	    for (int i = 14; i < fecPacketBytes.length; i++) {
+	        System.out.print(String.format("%02X ", fecPacketBytes[i]));
+	    }
+	    System.out.println("| Expected: XOR of payloads {01, 02, 03}, {04, 05, 06}, {07, 08, 09} = 02 0F 0C");
 	}
+
 	
 	// ------------------------------------
 	// main
