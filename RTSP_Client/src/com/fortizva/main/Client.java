@@ -99,7 +99,7 @@ public class Client {
 	
 	// Timer variables:
 	static int video_frame_period = 40; // video frame period in msec
-	static int audio_frame_period = 40; // audio frame period in msec
+	static int audio_frame_period = 10; // audio frame period in msec
 	
 	Thread rtpSocketListener; // thread used to receive data from the UDP socket
 	Timer videoTimer; // timer used to receive data from the UDP socket
@@ -187,8 +187,8 @@ public class Client {
 
 		// allocate enough memory for the buffer used to receive data from the server
 		buf = new byte[15000];
-		videoBuffer = new LinkedBlockingQueue<RTPpacket>(500);
-		audioBuffer = new LinkedBlockingQueue<RTPpacket>(500);
+		videoBuffer = new LinkedBlockingQueue<RTPpacket>(1000);
+		audioBuffer = new LinkedBlockingQueue<RTPpacket>(1000);
 		
 		// init timer
 		// --------------------------

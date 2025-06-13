@@ -18,5 +18,9 @@ public class CommonPacketValues {
 	// FEC packet constants
 	public static final int FEC_PTYPE = 0xBE; // Payload type for FEC packets
 	public static final int FEC_E = 0; // FEC packet extension flag
-	public static final int FEC_L = 0; // FEC packet long-mask flag
+	public static final int FEC_L = 0; // FEC packet long-mask 
+
+	// Timers
+	public static final int FRAME_PERIOD = 20; //Frame period of the video to stream, in ms
+	public static final int AUDIO_FRAME_PERIOD = 10; //Frame period of the audio to stream, in ms (See Codec.java for more details)
 }
