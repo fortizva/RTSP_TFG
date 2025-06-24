@@ -32,7 +32,8 @@ class FECpacketTest {
         FECpacket fec = new FECpacket(rtpPackets);
 
         // Get the FEC packet bytes
-        byte[] fecBytes = fec.getFECPacket();
+        byte[] fecBytes = new byte[fec.getFECPacketSize()];
+        fecBytes = fec.getFECPacket();
 
         // Check flags (first byte should be 0x00)
         assertEquals(0x00, fecBytes[0]); // E, L, P, X, CC, M bits

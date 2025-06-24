@@ -1,4 +1,4 @@
-package com.fortizva.main;
+package com.fortizva.rtp;
 /* ------------------
    Client
    usage: java Client [Server hostname] [Server RTSP listening port] [Video file requested]
@@ -93,7 +93,7 @@ public class Client {
 	static int RTP_RCV_PORT = 25000; // port where the client will receive the RTP packets
 
 	// RTP packet buffer
-	final static int BUFFER_TIMEOUT = 100; // Timeout for the buffer
+	final static int BUFFER_TIMEOUT = 65; // Timeout for the buffer
 	BlockingQueue<RTPpacket> videoBuffer;
 	BlockingQueue<RTPpacket> audioBuffer;
 	
@@ -250,7 +250,7 @@ public class Client {
 	
 	    // Retrieve FEC packet bytes
 	    byte[] fecPacketBytes = new byte[fecPacket.getFECPacketSize()];
-	    fecPacket.getFECPacket(fecPacketBytes);
+	    fecPacketBytes = fecPacket.getFECPacket();
 	
 	    // Print FEC packet bytes in hex format
 	    System.out.println("FEC Packet Bytes:");
@@ -583,7 +583,7 @@ public class Client {
 
 			try {
 				RTPpacket rtp_packet = videoBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
-				if(rtp_packet != null) {				
+				if(rtp_packet != null) {
 					// get the payload bitstream from the RTPpacket object
 					int payload_length = rtp_packet.getpayload_length();
 					byte[] payload = new byte[payload_length];
