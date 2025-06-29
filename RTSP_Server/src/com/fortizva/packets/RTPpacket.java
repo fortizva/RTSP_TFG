@@ -30,12 +30,12 @@ public class RTPpacket {
 	// --------------------------
 	public RTPpacket(int PType, int Framenb, int Time, byte[] data, int data_length) {
 		// fill by default header fields:
-		Version = CommonPacketValues.RTP_VERSION;
-		Padding = CommonPacketValues.RTP_PADDING;
-		Extension = CommonPacketValues.RTP_EXTENSION;
-		CC = CommonPacketValues.RTP_CC;
-		Marker = CommonPacketValues.RTP_MARKER;
-		Ssrc = CommonPacketValues.RTP_SSRC;
+		Version = CommonValues.RTP_VERSION;
+		Padding = CommonValues.RTP_PADDING;
+		Extension = CommonValues.RTP_EXTENSION;
+		CC = CommonValues.RTP_CC;
+		Marker = CommonValues.RTP_MARKER;
+		Ssrc = CommonValues.RTP_SSRC;
 
 		// fill changing header fields:
 		SequenceNumber = Framenb;

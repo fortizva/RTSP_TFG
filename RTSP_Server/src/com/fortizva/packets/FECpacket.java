@@ -194,7 +194,7 @@ public class FECpacket {
 		// Calculate total FEC size (without RTP header) to insert it as an RTP payload
 		// Main FEC Header
 		// If the L bit is set to 1, we would add 3 more bytes for the mask continuation (48 bits) (Not used in this implementation)
-		packetFECSize = CommonPacketValues.FEC_HEADER_SIZE + CommonPacketValues.FEC_LEVEL_HEADER_SIZE; // Headers size
+		packetFECSize = CommonValues.FEC_HEADER_SIZE + CommonValues.FEC_LEVEL_HEADER_SIZE; // Headers size
 		packetFECSize += protectionLength;// Add the size of the XOR payload (size of the largest RTP packet payload)
 
 		fecPacketBytes = new byte[packetFECSize];
@@ -260,7 +260,7 @@ public class FECpacket {
 		
 		// Fill the FEC payload with the XOR result
 		// Total header length of the FEC packet (FEC header + FEC level header);
-		int totalHeaderLength = CommonPacketValues.FEC_HEADER_SIZE+CommonPacketValues.FEC_LEVEL_HEADER_SIZE; 
+		int totalHeaderLength = CommonValues.FEC_HEADER_SIZE+CommonValues.FEC_LEVEL_HEADER_SIZE; 
 		for (int i = 0; i < xorPayload.length; i++) {
 			fecPacketBytes[totalHeaderLength + i] = xorPayload[i]; // Start filling after the protection mask
 		}

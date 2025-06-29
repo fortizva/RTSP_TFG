@@ -41,8 +41,8 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
-import javax.swing.Timer;
 
+import com.fortizva.packets.CommonValues;
 import com.fortizva.packets.RTPpacket;
 
 public class Client {
@@ -75,7 +75,7 @@ public class Client {
 	static long last_packet_time = 0l;
 	static long last_packet_delay = 0l;
 	static long jitter = 0l;
-	// 	FPS
+	// FPS
 	long last_fps_update_time = 0;
 	int last_fps_video_nb = 0;
 	double current_fps = 0;
@@ -85,24 +85,27 @@ public class Client {
 	// ----
 	static boolean verbose = false;
 
+	// Threading
+	// ----------------
+	private volatile boolean running = false; // Flag to indicate if the client is running
+	private volatile boolean paused = false; // Flag to indicate if the client is paused
+	private final Object pauseLock = new Object(); // Lock object to synchronize pause and resume
+
+	Thread rtpSocketListener; // thread used to receive data from the UDP socket
+	Thread videoThread; // thread used to process video frames
+	Thread audioThread; // thread used to process audio frames
+	// ----------------
+
 	// RTP variables:
 	// ----------------
 	DatagramPacket rcvdp; // UDP packet received from the server
 	DatagramSocket RTPsocket; // socket to be used to send and receive UDP packets
-	static int RTP_RCV_PORT = 25000; // port where the client will receive the RTP packets
 
 	// RTP packet buffer
-	final static int BUFFER_TIMEOUT = 100; // Timeout for the buffer
+	final static int BUFFER_TIMEOUT = 60; // Timeout for the buffer
 	BlockingQueue<RTPpacket> videoBuffer;
 	BlockingQueue<RTPpacket> audioBuffer;
-	
-	// Timer variables:
-	static int video_frame_period = 40; // video frame period in msec
-	static int audio_frame_period = 40; // audio frame period in msec
-	
-	Thread rtpSocketListener; // thread used to receive data from the UDP socket
-	Timer videoTimer; // timer used to receive data from the UDP socket
-	Timer audioTimer; // timer used to receive data from the UDP socket
+
 	byte[] buf; // buffer used to store data received from the server
 
 	// RTSP variables
@@ -120,16 +123,7 @@ public class Client {
 	int RTSPSeqNb = 0; // Sequence number of RTSP messages within the session
 	int RTSPid = 0; // ID of the RTSP session (given by the RTSP Server)
 
-	final static String CRLF = "\r\n";
-
 	SourceDataLine speaker; // Audio datasource to speaker
-
-	// Video constants:
-	// ------------------
-	static int MJPEG_TYPE = 26; // RTP payload type for MJPEG video
-
-	// Audio constants:
-	static int RAW_TYPE = 0;
 
 	// --------------------------
 	// Constructor
@@ -145,7 +139,7 @@ public class Client {
 				cleanExit();
 			}
 		});
-		
+
 		// Buttons
 		buttonPanel.setLayout(new GridLayout(1, 0));
 		buttonPanel.add(setupButton);
@@ -186,22 +180,33 @@ public class Client {
 
 		// allocate enough memory for the buffer used to receive data from the server
 		buf = new byte[15000];
-		videoBuffer = new LinkedBlockingQueue<RTPpacket>(500);
-		audioBuffer = new LinkedBlockingQueue<RTPpacket>(500);
-		
+		videoBuffer = new LinkedBlockingQueue<RTPpacket>(1000);
+		audioBuffer = new LinkedBlockingQueue<RTPpacket>(1000);
+
 		// init timer
 		// --------------------------
 		rtpSocketListener = new Thread(new RTPSocketListener());
-		
-		videoTimer = new Timer(video_frame_period, new videoTimerListener());
-		videoTimer.setInitialDelay(0);
-		videoTimer.setCoalesce(true);
-		
-		audioTimer = new Timer(audio_frame_period, new audioTimerListener());
-		audioTimer.setInitialDelay(0);
-		audioTimer.setCoalesce(true);
 
-		
+		// Set the thread as a daemon so it will not block the application from exiting
+		rtpSocketListener.setDaemon(true);
+
+		videoThread = new Thread(new videoTimerListener());
+		audioThread = new Thread(new audioTimerListener());
+		videoThread.setDaemon(true);
+		audioThread.setDaemon(true);
+
+		/*
+		 * videoTimer = new Timer(CommonPacketValues.PLAYBACK_FRAME_PERIOD, new
+		 * videoTimerListener());
+		 * videoTimer.setInitialDelay(0);
+		 * videoTimer.setCoalesce(true);
+		 * 
+		 * audioTimer = new Timer(CommonPacketValues.PLAYBACK_AUDIO_FRAME_PERIOD, new
+		 * audioTimerListener());
+		 * audioTimer.setInitialDelay(0);
+		 * audioTimer.setCoalesce(true);
+		 */
+
 	}
 
 	// ------------------------------------
@@ -236,7 +241,13 @@ public class Client {
 		s += "</html>";
 		return s;
 	}
-	
+
+	class UpdateStats implements Runnable {
+		public void run() {
+			statsLabel.setText(getStats());
+		}
+	}
+
 	// ------------------------------------
 	// main
 	// ------------------------------------
@@ -290,8 +301,8 @@ public class Client {
 				// Init non-blocking RTPsocket that will be used to receive data
 				try {
 					// construct a new DatagramSocket to receive RTP packets from the server, on
-					// port RTP_RCV_PORT
-					RTPsocket = new DatagramSocket(RTP_RCV_PORT);
+					// port CommonPacketValues.RTP_RCV_PORT
+					RTPsocket = new DatagramSocket(CommonValues.RTP_RCV_PORT);
 					// set TimeOut value of the socket to 5msec.
 					RTPsocket.setSoTimeout(5000);
 
@@ -344,10 +355,19 @@ public class Client {
 					if (verbose)
 						System.out.println("New RTSP state: PLAYING (" + state + ")");
 
-					// start the timer
-					videoTimer.start();
-					audioTimer.start();
-					// Check if the thread is already running
+					running = true; // Set running flag to true
+					paused = false; // Set paused flag to false
+					synchronized (pauseLock) {
+						pauseLock.notifyAll(); // Notify any waiting threads to continue
+					}
+
+					// Start the video, audio and RTP threads
+					if (!videoThread.isAlive()) {
+						videoThread.start(); // start the video timer thread
+					}
+					if (!audioThread.isAlive()) {
+						audioThread.start(); // start the audio timer thread
+					}
 					if (!rtpSocketListener.isAlive()) {
 						rtpSocketListener.start(); // start the RTP socket listener thread
 					}
@@ -380,9 +400,8 @@ public class Client {
 					if (verbose)
 						System.out.println("New RTSP state: READY (" + state + ")");
 
-					// stop the timer
-					videoTimer.stop();
-					audioTimer.stop();
+					paused = true; // Set paused flag to true
+
 					// RTPSocketListener should pause by itself on state change
 				}
 			}
@@ -413,9 +432,18 @@ public class Client {
 				if (verbose)
 					System.out.println("New RTSP state: INIT(" + state + ")");
 
-				// stop the timer
-				videoTimer.stop();
-				audioTimer.stop();
+				running = false; // Set running flag to false
+				paused = false; // Set paused flag to false
+				synchronized (pauseLock) {
+					pauseLock.notifyAll(); // Notify any waiting threads to stop
+				}
+				// Stop the video, audio and RTP threads
+				if (videoThread != null && videoThread.isAlive()) {
+					videoThread.interrupt(); // Interrupt the video thread
+				}
+				if (audioThread != null && audioThread.isAlive()) {
+					audioThread.interrupt(); // Interrupt the audio thread
+				}
 				// RTPSocketListener should stop by itself on state change
 
 				// exit
@@ -427,11 +455,12 @@ public class Client {
 	// ------------------------------------
 	// Handler for RTP socket thread
 	// ------------------------------------
-	
+
 	class RTPSocketListener implements Runnable {
 		public void run() {
-			// Keep listening to the RTP socket until the state is INIT or the thread is interrupted (End of program)
-			while(state != Client.INIT && !Thread.currentThread().isInterrupted()) {
+			// Keep listening to the RTP socket until the state is INIT or the thread is
+			// interrupted (End of program)
+			while (state != Client.INIT && !Thread.currentThread().isInterrupted()) {
 				// If player is paused ignore timeouts and keep waiting for the state to change
 				if (state == Client.PLAYING) {
 					// Construct a DatagramPacket to receive data from the UDP socket
@@ -442,13 +471,14 @@ public class Client {
 						RTPpacket rtp_packet = new RTPpacket(rcvdp.getData(), rcvdp.getLength());
 						// print important header fields of the RTP packet received:
 						if (verbose) {
-							System.out.println("Got RTP packet with SeqNum # " + rtp_packet.getsequencenumber() + " TimeStamp "
+							System.out.println("Got RTP packet with SeqNum # " + rtp_packet.getsequencenumber()
+									+ " TimeStamp "
 									+ rtp_packet.gettimestamp() + " ms, of type " + rtp_packet.getpayloadtype());
-	
+
 							// print header bitstream:
 							rtp_packet.printheader();
 						}
-						
+
 						// -----------------------------
 						// Update stats
 						// -----------------------------
@@ -459,38 +489,35 @@ public class Client {
 							packet_loss = (lost_packets * 100) / (last_packet_nb + 1);
 						} else
 							last_packet_nb = rtp_packet.getsequencenumber();
-	
+
 						// Packet delay
 						last_packet_delay = packet_delay; // Save last packet delay to calculate jitter
 						packet_delay = (last_packet_time == 0) ? 0 : System.currentTimeMillis() - last_packet_time;
 						last_packet_time = System.currentTimeMillis();
-	
+
 						// Jitter
 						jitter = last_packet_delay - packet_delay;
-	
+
 						// Bytes received
 						received_bytes += rcvdp.getLength();
 						// -----------------------------
 						// Update stats text (invokeLater to avoid deadlock)
-						SwingUtilities.invokeLater(()->statsLabel.setText(getStats()));
+						SwingUtilities.invokeLater(() -> statsLabel.setText(getStats()));
 						// ------------------------------
-						
+
 						// Check if the packet is audio or video
-						if(rtp_packet.getpayloadtype() == RAW_TYPE) {
-							audioBuffer.put(rtp_packet);
-						} else if(rtp_packet.getpayloadtype() == MJPEG_TYPE) {
-							videoBuffer.put(rtp_packet);
+						if (rtp_packet.getpayloadtype() == CommonValues.RAW_TYPE) {
+							audioBuffer.offer(rtp_packet);
+						} else if (rtp_packet.getpayloadtype() == CommonValues.MJPEG_TYPE) {
+							videoBuffer.offer(rtp_packet);
 						} else {
 							System.out.println("Unknown payload type: " + rtp_packet.getsequencenumber());
 						}
 					} catch (InterruptedIOException iioe) {
 						// We can ignore this exception as it is just a timeout
 						// System.out.println("Nothing to read");
-					} catch (InterruptedException ie) {
-						System.out.println("[RTPSocketListener] InterruptedException caught: " + ie);
-						break; // Exit the loop if interrupted
 					} catch (SocketException se) {
-						if(verbose)
+						if (verbose)
 							System.out.println("[RTPSocketListener] Socket closed, exiting thread...");
 						break; // Exit the loop if socket is closed
 					} catch (IOException ioe) {
@@ -500,74 +527,100 @@ public class Client {
 			}
 		}
 	}
-	
-	
+
 	// ------------------------------------
 	// Handler for timer
 	// ------------------------------------
 
-	class videoTimerListener implements ActionListener {
-		public void actionPerformed(ActionEvent e) {
-
-			try {
-				RTPpacket rtp_packet = videoBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
-				if(rtp_packet != null) {				
-					// get the payload bitstream from the RTPpacket object
-					int payload_length = rtp_packet.getpayload_length();
-					byte[] payload = new byte[payload_length];
-					rtp_packet.getpayload(payload);
-					
-					// Increment the video frame number
-					last_video_nb++;
-					
-					// [Stats] FPS calculation
-					// -----------------
-					long now = System.currentTimeMillis();
-					if (now - last_fps_update_time >= 1000) {
-						current_fps = (last_video_nb - last_fps_video_nb) / ((now - last_fps_update_time) / 1000.0);
-						last_fps_video_nb = last_video_nb;
-						last_fps_update_time = now;
+	class videoTimerListener implements Runnable {
+		public void run() {
+			while (running) {
+				synchronized (pauseLock) {
+					while (paused && running) {
+						try {
+							pauseLock.wait(); // Wait until the pauseLock is notified
+						} catch (InterruptedException e) {
+							System.out.println("[videoTimerListener] Exception caught: " + e);
+						}
 					}
-					// -----------------
-					
-					// get an Image object from the payload bitstream
-					Toolkit toolkit = Toolkit.getDefaultToolkit();
-					Image image = toolkit.createImage(payload, 0, payload_length);
+				}
+				if (!running)
+					break; // Exit if the running flag is false
+				try {
+					RTPpacket rtp_packet = videoBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
+					if (rtp_packet != null) {
+						// get the payload bitstream from the RTPpacket object
+						int payload_length = rtp_packet.getpayload_length();
+						byte[] payload = new byte[payload_length];
+						rtp_packet.getpayload(payload);
 
-					// display the image as an ImageIcon object
-					icon = new ImageIcon(image);
-					iconLabel.setIcon(icon);
-					
-				} else {
+						// Increment the video frame number
+						last_video_nb++;
+
+						// [Stats] FPS calculation
+						// -----------------
+						long now = System.currentTimeMillis();
+						if (now - last_fps_update_time >= 1000) {
+							current_fps = (last_video_nb - last_fps_video_nb) / ((now - last_fps_update_time) / 1000.0);
+							last_fps_video_nb = last_video_nb;
+							last_fps_update_time = now;
+						}
+						// -----------------
+
+						// get an Image object from the payload bitstream
+						Toolkit toolkit = Toolkit.getDefaultToolkit();
+						Image image = toolkit.createImage(payload, 0, payload_length);
+
+						// display the image as an ImageIcon object
+						SwingUtilities.invokeLater(() -> {
+							icon = new ImageIcon(image);
+							iconLabel.setIcon(icon);
+						});
+					}
+					Thread.sleep(CommonValues.PLAYBACK_FRAME_PERIOD); // Sleep for the frame period
+				} catch (InterruptedException ie) {
+					if (running)
+						System.out.println("[videoTimerListener] Exception caught: " + ie);
 				}
-			} catch (InterruptedException ie) {
-				System.out.println("[videoTimerListener] Exception caught: " + ie);
 			}
 		}
 	}
-	
-	class audioTimerListener implements ActionListener {
-		public void actionPerformed(ActionEvent e) {
-			try {
-				RTPpacket rtp_packet = audioBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
-				if(rtp_packet != null) {				
-					// get the payload bitstream from the RTPpacket object
-					int payload_length = rtp_packet.getpayload_length();
-					byte[] payload = new byte[payload_length];
-					rtp_packet.getpayload(payload);
-					
-					// write the data to the speaker
-					speaker.write(payload, 0, payload_length);
-					
-					
-				} else {
+
+	class audioTimerListener implements Runnable {
+		public void run() {
+			while (running) {
+				synchronized (pauseLock) {
+					while (paused && running) {
+						try {
+							pauseLock.wait(); // Wait until the pauseLock is notified
+						} catch (InterruptedException e) {
+							System.out.println("[audioTimerListener] Exception caught: " + e);
+						}
+					}
 				}
-			} catch (InterruptedException ie) {
-				System.out.println("[audioTimerListener] Exception caught: " +ie);
+				if (!running)
+					break; // Exit if the running flag is false
+				try {
+					RTPpacket rtp_packet = audioBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
+					if (rtp_packet != null) {
+						// get the payload bitstream from the RTPpacket object
+						int payload_length = rtp_packet.getpayload_length();
+						byte[] payload = new byte[payload_length];
+						rtp_packet.getpayload(payload);
+
+						// write the data to the speaker
+						speaker.write(payload, 0, payload_length);
+
+					}
+					Thread.sleep(CommonValues.PLAYBACK_AUDIO_FRAME_PERIOD); // Sleep for the frame period
+				} catch (InterruptedException ie) {
+					if (running)
+						System.out.println("[audioTimerListener] Exception caught: " + ie);
+				}
 			}
 		}
 	}
-	
+
 	// ------------------------------------
 	// Parse Server Response
 	// ------------------------------------
@@ -614,7 +667,7 @@ public class Client {
 	private void send_RTSP_request(String request_type) {
 		try {
 			// Use the RTSPBufferedWriter to write to the RTSP socket
-			
+
 			String request_line = VideoFileName + " RTSP/1.0";
 			switch (request_type) {
 				case "SETUP":
@@ -632,27 +685,31 @@ public class Client {
 				default:
 					throw new IllegalArgumentException("Unexpected value: " + state);
 			}
-			RTSPBufferedWriter.write(request_line + CRLF);
+			RTSPBufferedWriter.write(request_line + CommonValues.CRLF);
 			if (verbose)
 				System.out.println("C: " + request_line);
 
 			// write the CSeq line
-			RTSPBufferedWriter.write("CSeq: " + RTSPSeqNb + CRLF);
+			RTSPBufferedWriter.write("CSeq: " + RTSPSeqNb + CommonValues.CRLF);
 			if (verbose)
-				System.out.println("C: " + "CSeq: " + RTSPSeqNb + CRLF);
+				System.out.println("C: " + "CSeq: " + RTSPSeqNb + CommonValues.CRLF);
 			/*
-			 * If the request type is "SETUP", 
-			 * write the Transport header to inform the server of the client's RTP receiving port.
-			 * For all other request types, write the Session header with the current RTSP session ID.
-			*/
+			 * If the request type is "SETUP",
+			 * write the Transport header to inform the server of the client's RTP receiving
+			 * port.
+			 * For all other request types, write the Session header with the current RTSP
+			 * session ID.
+			 */
 			if (request_type.equals("SETUP")) {
-				RTSPBufferedWriter.write("Transport: RTP/UDP; client_port= " + RTP_RCV_PORT + CRLF);
+				RTSPBufferedWriter
+						.write("Transport: RTP/UDP; client_port= " + CommonValues.RTP_RCV_PORT + CommonValues.CRLF);
 				if (verbose)
-					System.out.println("C: " + "Transport: RTP/UDP; client_port= " + RTP_RCV_PORT + CRLF);
+					System.out.println("C: " + "Transport: RTP/UDP; client_port= " + CommonValues.RTP_RCV_PORT
+							+ CommonValues.CRLF);
 			} else {
-				RTSPBufferedWriter.write("Session: " + RTSPid + CRLF);
+				RTSPBufferedWriter.write("Session: " + RTSPid + CommonValues.CRLF);
 				if (verbose)
-					System.out.println("C: " + "Session: " + RTSPid + CRLF);
+					System.out.println("C: " + "Session: " + RTSPid + CommonValues.CRLF);
 			}
 
 			RTSPBufferedWriter.flush();
@@ -661,7 +718,7 @@ public class Client {
 			cleanExit();
 		}
 	}
-	
+
 	// ------------------------------------
 	// Clean exit
 	// ------------------------------------
@@ -671,12 +728,12 @@ public class Client {
 			if (rtpSocketListener != null && rtpSocketListener.isAlive()) {
 				rtpSocketListener.interrupt();
 			}
-			// Stop timers and close soundcard
-			if (videoTimer != null) {
-				videoTimer.stop();
+			// Stop threads and close soundcard
+			if (videoThread != null && videoThread.isAlive()) {
+				videoThread.interrupt();
 			}
-			if (audioTimer != null) {
-				audioTimer.stop();
+			if (audioThread != null && audioThread.isAlive()) {
+				audioThread.interrupt();
 			}
 			// Close RTP and RTSP sockets
 			if (RTPsocket != null) {
