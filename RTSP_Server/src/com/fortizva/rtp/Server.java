@@ -19,11 +19,13 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.StringTokenizer;
+
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
+
 import com.fortizva.media.Codec;
-import com.fortizva.packets.CommonPacketValues;
+import com.fortizva.packets.CommonValues;
 import com.fortizva.packets.RTPpacket;
 
 public class Server extends JFrame {
@@ -35,7 +37,9 @@ public class Server extends JFrame {
 
 	// RTP variables:
 	// ----------------
-	DatagramSocket RTPsocket; // socket to be used to send and receive UDP packets
+	//DatagramSocket RTPsocket; // socket to be used to send and receive UDP packets
+	DatagramSocket VideoSocket; // socket to send video frames
+	DatagramSocket AudioSocket; // socket to send audio frames
 	DatagramPacket vsenddp; // UDP packet containing the video frames
 	DatagramPacket asenddp; // UDP packet containing the audio frames
 
@@ -61,9 +65,7 @@ public class Server extends JFrame {
 	// ----------------
 	Thread videoThread; // Thread to handle video processing
 	int imagenb = 0; // image nb of the image currently transmitted
-	int videoSkips = 0; // Number of video skips (non-video frames)
-	static int MJPEG_TYPE = 26; // RTP payload type for MJPEG video
-	int FRAME_PERIOD = 40; // Frame period of the video to stream, in ms
+	int videoSkips = 0; // Number of video skips (non-video frames)	
 	int VIDEO_LENGTH; // length of the video in frames
 	byte[] vBuf; // buffer used to store the images to send to the client
 
@@ -71,7 +73,6 @@ public class Server extends JFrame {
 	Thread audioThread; // Thread to handle audio processing
 	int audionb = 0; // audio chunk nb of the audio currently transmitted
 	int audioSkips = 0; // Number of audio skips (non-audio frames)
-	static int RAW_TYPE = 0;
 	byte[] aBuf; // buffer used to store the chunks to send to the client
 
 	// Thread handling
@@ -185,28 +186,27 @@ public class Server extends JFrame {
 
 				// Init video properties
 				theServer.VIDEO_LENGTH = theServer.videoCodec.getNumFrames();
-				theServer.FRAME_PERIOD = (int) (1000 / theServer.videoCodec.getFPS());
+				//theServer.FRAME_PERIOD = (int) (1000 / theServer.videoCodec.getFPS());
 				theServer.videoThread = new Thread(theServer.new VideoSender());
 				if (!theServer.verbose)
-					System.out.println("DEBUG: FPS: " + theServer.videoCodec.getFPS() + " FRAME_PERIOD: "
-							+ theServer.FRAME_PERIOD);
+					System.out.println("DEBUG: FPS: " + theServer.videoCodec.getFPS() + " PLAYBACK_FRAME_PERIOD: "
+							+ CommonValues.PLAYBACK_FRAME_PERIOD + "STREAMING_FRAME_PERIOD: " + CommonValues.STREAMING_FRAME_PERIOD);
 
 				// Add a frame per second to send FEC packets
 				// theServer.FRAME_PERIOD = 1000 / (theServer.codec.getFPS()+1);
 				// theServer.timer.setDelay(theServer.FRAME_PERIOD);
-				if (theServer.verbose)
-					System.out.println("DEBUG: Adding an aditional frame per second to send FEC packets: FRAME_PERIOD="
-							+ theServer.FRAME_PERIOD);
 
 				// Init audio properties
 				theServer.audioCodec = new Codec(VideoFileName); // Use different codec for audio to read audio data
 																	// separately
 				theServer.audioThread = new Thread(theServer.new AudioSender());
 				if (!theServer.verbose)
-					System.out.println("DEBUG: AUDIO_FRAME_PERIOD: " + CommonPacketValues.AUDIO_FRAME_PERIOD);
+					System.out.println("DEBUG: AUDIO_FRAME_PERIOD: " + CommonValues.PLAYBACK_AUDIO_FRAME_PERIOD 
+							+ " STREAMING_AUDIO_FRAME_PERIOD: " + CommonValues.STREAMING_AUDIO_FRAME_PERIOD);
 
-				// init RTP socket
-				theServer.RTPsocket = new DatagramSocket();
+				// init RTP sockets
+				theServer.VideoSocket = new DatagramSocket();
+				theServer.AudioSocket = new DatagramSocket();
 			}
 		}
 
@@ -281,21 +281,21 @@ public class Server extends JFrame {
 					imagenb++; // Increment video frame number (Counted separately for GUI purposes)
 					videoSkips += (videoCodec.isNextFrameAudio()) ? 1 : 0; // Count adds if the next frame is not video
 					int video_length = videoCodec.getnextframe(vBuf);
-					RTPpacket video_packet = new RTPpacket(MJPEG_TYPE, (imagenb + videoSkips),
-							(imagenb + videoSkips) * FRAME_PERIOD, vBuf, video_length);
+					RTPpacket video_packet = new RTPpacket(CommonValues.MJPEG_TYPE, (imagenb),// + videoSkips),
+							(imagenb /*+ videoSkips*/) * CommonValues.PLAYBACK_FRAME_PERIOD, vBuf, video_length);
 					byte[] video_bits = new byte[video_packet.getlength()];
 					video_packet.getpacket(video_bits);
 					vsenddp = new DatagramPacket(video_bits, video_bits.length, ClientIPAddr, RTP_dest_port);
 					// DEBUG: Add random lost packets
 					// if((Math.random()*100d) < 95)
-					RTPsocket.send(vsenddp);
+					VideoSocket.send(vsenddp);
 					// print the header bitstream
 					if (verbose)
 						video_packet.printheader();
 					// update GUI
 					SwingUtilities.invokeLater(new UpdateLabel());
 					// Sleep for the video frame period
-					Thread.sleep(FRAME_PERIOD);
+					Thread.sleep(CommonValues.STREAMING_FRAME_PERIOD);
 				} catch (Exception ex) {
 					if (verbose)
 						System.out.println("DEBUG: VIDEOactionPerformed()");
@@ -330,15 +330,15 @@ public class Server extends JFrame {
 					audionb++; // Increment audio chunk number (Counted separately for GUI purposes)
 					audioSkips += (audioCodec.isNextFrameAudio()) ? 0 : 1; // Count adds if the next frame is not audio
 					int audio_length = audioCodec.getnextchunk(aBuf);
-					RTPpacket audio_packet = new RTPpacket(RAW_TYPE, (audionb + audioSkips),
-							(audionb + audioSkips) * FRAME_PERIOD, aBuf, audio_length);
+					RTPpacket audio_packet = new RTPpacket(CommonValues.RAW_TYPE, audionb,
+							(audionb) * CommonValues.STREAMING_AUDIO_FRAME_PERIOD, aBuf, audio_length);
 					byte[] audio_bits = new byte[audio_packet.getlength()];
 					audio_packet.getpacket(audio_bits);
 					asenddp = new DatagramPacket(audio_bits, audio_bits.length, ClientIPAddr, RTP_dest_port);
 
 					// DEBUG: Add random lost packets
 					// if((Math.random()*100d) < 95)
-					RTPsocket.send(asenddp);
+					AudioSocket.send(asenddp);
 
 					// print the header bitstream
 					if (verbose)
@@ -346,7 +346,7 @@ public class Server extends JFrame {
 					// update GUI
 					SwingUtilities.invokeLater(new UpdateLabel());
 					// Sleep for the audio frame period
-					Thread.sleep(CommonPacketValues.AUDIO_FRAME_PERIOD);
+					Thread.sleep(CommonValues.STREAMING_AUDIO_FRAME_PERIOD);
 				} catch (Exception ex) {
 					if (verbose)
 						System.out.println("DEBUG: AUDIOactionPerformed()");
@@ -464,8 +464,11 @@ public class Server extends JFrame {
 			if (RTSPsocket != null) {
 				RTSPsocket.close();
 			}
-			if (RTPsocket != null) {
-				RTPsocket.close();
+			if (VideoSocket != null) {
+				VideoSocket.close();
+			}
+			if (AudioSocket != null) {
+				AudioSocket.close();
 			}
 			// Close input and output stream filters
 			if (RTSPBufferedReader != null) {
