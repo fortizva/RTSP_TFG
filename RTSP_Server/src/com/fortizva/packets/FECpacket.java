@@ -103,7 +103,7 @@ public class FECpacket {
 	
 	// FEC variables
 	private byte[] flags = new byte[2]; // Flags field combining E, L, P, X, CC, M, and PT recovery fields
-	private int PTrecovery; // Payload Type recovery field (PT recovery)
+	private int ptRecovery; // Payload Type recovery field (PT recovery)
 	private int baseSequenceNumber; // Base sequence number of the first RTP packet protected by this FEC packet
 	private int maskLength; // Number of RTP packets protected by this FEC packet
 	private byte[] protectionMask = new byte[2]; // Default size of the protection mask is 2 bytes (16 bits) (No long mask used in this implementation)
@@ -133,14 +133,14 @@ public class FECpacket {
 		 *  As the M field is not used, we can just equal the whole byte to the PT recovery field (most significant bit is set to 0).
 		 */
 		for (RTPpacket rtpPacket : rtpPackets) {
-			flags[1] ^= rtpPacket.getpayloadtype(); // XOR all payload types to get the PT recovery field
+			flags[1] ^= rtpPacket.getPayloadType(); // XOR all payload types to get the PT recovery field
 		}
 		// Just in case, we overwrite the M bit to 0
 		flags[1] &= 0b01111111; // Set the M bit to 0 (most significant bit)
-		PTrecovery = (int) flags[1];
+		ptRecovery = (int) flags[1];
 		
 		// We asume that the first RTP packet has the lowest sequence number (aka base sequence number)
-		baseSequenceNumber = rtpPackets[0].getsequencenumber();
+		baseSequenceNumber = rtpPackets[0].getSequenceNumber();
 		
 		// Determine the number of RTP packets to be protected by this FEC packet
 		maskLength = rtpPackets.length; 
@@ -182,9 +182,9 @@ public class FECpacket {
 		timestampRecovery = 0; // Initialize timestamp recovery value to 0
 		for (RTPpacket rtpPacket : rtpPackets) {
 			// Calculate length recovery value as an XOR of all RTP packets' payload sizes
-			lengthRecovery ^= rtpPacket.getpayload_length();
-			timestampRecovery ^= rtpPacket.gettimestamp();
-			current_size = rtpPacket.getpayload_length();
+			lengthRecovery ^= rtpPacket.getPayloadLength();
+			timestampRecovery ^= rtpPacket.getTimeStamp();
+			current_size = rtpPacket.getPayloadLength();
 			if (current_size > protectionLength) {
 				protectionLength = current_size; 
 			}
@@ -205,7 +205,7 @@ public class FECpacket {
 		fecPacketBytes[1] = flags[1]; // PT recovery field
 		
 		// Fill the Base Sequence Number
-		this.baseSequenceNumber = rtpPackets[0].getsequencenumber();
+		this.baseSequenceNumber = rtpPackets[0].getSequenceNumber();
 		byte[] basesequencebytes = BinaryField.binarySplitter(this.baseSequenceNumber);
 		for (int i = 0; i < Math.min(basesequencebytes.length, 2); i++) {
 			// Fill Base Sequence Number in reverse order so the beginning is zeroes
@@ -245,10 +245,10 @@ public class FECpacket {
 		// Iterate through each RTP packet and perform XOR operation on payloads
 		for (RTPpacket rtpPacket : rtpPackets) {
 			if(firstPacket) {
-				rtpPacket.getpayload(xorPayload); // Get the first packet payload to initialize the XOR payload
+				xorPayload = rtpPacket.getPayload(); // Get the first packet payload to initialize the XOR payload
 			}else {
-				byte[] currentPayload = new byte[rtpPacket.getpayload_length()];
-				rtpPacket.getpayload(currentPayload);
+				byte[] currentPayload = new byte[rtpPacket.getPayloadLength()];
+				currentPayload = rtpPacket.getPayload();
 				for (int i = 0; i < xorPayload.length; i++) {
 					currentByte = (i < currentPayload.length) ? currentPayload[i] : 0; // Fill with 0 if index exceeds payload length
 					xorPayload[i] ^= currentByte; // XOR operation with subsequent packets
@@ -274,7 +274,7 @@ public class FECpacket {
 	 */
 	public RTPpacket recoverPacket(RTPpacket[] receivedPackets, int lostIndex) {
 	    // Initialize variables for the recovered RTP packet
-		int recoveredPT = PTrecovery; // Initialize with FEC value for later XOR
+		int recoveredPT = ptRecovery; // Initialize with FEC value for later XOR
 		int recoveredSeq = getBaseSequenceNumber();
 	    int recoveredTs = timestampRecovery; // Initialize with FEC value for later XOR
 	    int recoveredLen = lengthRecovery; // Initialize with FEC value for later XOR
@@ -284,14 +284,14 @@ public class FECpacket {
 	
 	    // XOR all available packets' fields
 	    for (int i = 0, j = 0; i < maskLength-1; i++) { // maskLength-1 because we are recovering one packet
-	        	recoveredPT ^= receivedPackets[j].getpayloadtype();
-		        recoveredTs ^= receivedPackets[j].gettimestamp();
-		        recoveredLen ^= receivedPackets[j].getpayload_length();
+	        	recoveredPT ^= receivedPackets[j].getPayloadType();
+		        recoveredTs ^= receivedPackets[j].getTimeStamp();
+		        recoveredLen ^= receivedPackets[j].getPayloadLength();
 		        j++;
 	    }
 	
 	    // Recover payload
-	    byte[] fecPayload = getXORPayload();
+	    byte[] fecPayload = getXorPayload();
 	
 	    // Initialize the recovered payload with the FEC payload
 	    byte[] recoveredPayload = new byte[protectionLength];
@@ -299,8 +299,8 @@ public class FECpacket {
 	
 	    for (int i = 0, j = 0; i < maskLength-1; i++) { // maskLength-1 because we are recovering one packet
 		        byte[] p = new byte[protectionLength];
-		        byte[] origPayload = new byte[receivedPackets[j].getpayload_length()];
-		        receivedPackets[j].getpayload(origPayload);
+		        byte[] origPayload = new byte[receivedPackets[j].getPayloadLength()];
+		        origPayload = receivedPackets[j].getPayload();
 		        System.arraycopy(origPayload, 0, p, 0, origPayload.length);
 		        for (int k = 0; k < protectionLength; k++) {
 		            recoveredPayload[k] ^= p[k];
@@ -329,8 +329,8 @@ public class FECpacket {
 	 * Returns the Payload Type recovery field.
 	 * @return Payload Type recovery field.
 	 */
-	public int getPTrecovery() {
-		return PTrecovery;
+	public int getPtRecovery() {
+		return ptRecovery;
 	}
 	
 	/**
@@ -345,7 +345,7 @@ public class FECpacket {
 	 * Returns the FEC RTP Payload Type.
 	 * @return FEC Payload Type.
 	 */
-	public int getFECPType() {
+	public int getFecPType() {
 		return FECPType;
 	}
 	
@@ -353,7 +353,7 @@ public class FECpacket {
 	 * Returns the size of the FEC packet (excluding RTP header).
 	 * @return Size of the FEC packet in bytes.
 	 */
-	public int getFECPacketSize() {
+	public int getFecPacketSize() {
 		return packetFECSize;
 	}
 	
@@ -377,7 +377,7 @@ public class FECpacket {
 	 * Returns the FEC payload (XOR of the RTP packets' payloads).
 	 * @return FEC payload as a byte array.
 	 */
-	public byte[] getXORPayload() {
+	public byte[] getXorPayload() {
 		return xorPayload.clone();
 	}
 	
@@ -385,7 +385,7 @@ public class FECpacket {
 	 * Returns the FEC packet bytes.
 	 * @return FEC packet bytes.
 	 */
-	public byte[] getFECPacket() {
+	public byte[] getFecPacket() {
 		return fecPacketBytes.clone();
 	}
 }

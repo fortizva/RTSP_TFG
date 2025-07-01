@@ -1,8 +1,4 @@
 package com.fortizva.rtp;
-/* ------------------
-   Server
-   usage: java Server [RTSP listening port]
-   ---------------------- */
 
 import java.awt.BorderLayout;
 import java.awt.Dimension;
@@ -28,6 +24,9 @@ import com.fortizva.media.Codec;
 import com.fortizva.packets.CommonValues;
 import com.fortizva.packets.RTPpacket;
 
+/**
+ * Usage: java Server [RTSP listening port]
+*/
 public class Server extends JFrame {
 
 	private static final long serialVersionUID = 1L;
@@ -37,7 +36,6 @@ public class Server extends JFrame {
 
 	// RTP variables:
 	// ----------------
-	//DatagramSocket RTPsocket; // socket to be used to send and receive UDP packets
 	DatagramSocket VideoSocket; // socket to send video frames
 	DatagramSocket AudioSocket; // socket to send audio frames
 	DatagramPacket vsenddp; // UDP packet containing the video frames
@@ -103,9 +101,10 @@ public class Server extends JFrame {
 
 	final static String CRLF = "\r\n";
 
-	// --------------------------------
-	// Constructor
-	// --------------------------------
+	/**
+	 * Constructor of the Server class. Initializes the GUI and prepares the server to
+	 * accept RTSP requests.
+	 */
 	public Server() {
 
 		// init Frame
@@ -130,9 +129,11 @@ public class Server extends JFrame {
 		getContentPane().add(label, BorderLayout.CENTER);
 	}
 
-	// ------------------------------------
-	// main
-	// ------------------------------------
+	/**
+	 * Main method to start the media server.
+	 * 
+	 * @param argv Command line arguments: [RTSP listening port] [-v for verbose mode]
+	 */
 	public static void main(String argv[]) throws Exception {
 		// create a Server object
 		Server theServer = new Server();
@@ -257,9 +258,10 @@ public class Server extends JFrame {
 		}
 	}
 
-	// ------------------------
-	// Handler for video thread
-	// ------------------------
+	/**
+	 * Thread to handle video sending.
+	 * Sends video frames to the client at a specified rate.
+	 */
 	class VideoSender implements Runnable {
 		public void run() {
 			// if the current image nb is less than the length of the video keep going
@@ -283,15 +285,15 @@ public class Server extends JFrame {
 					int video_length = videoCodec.getnextframe(vBuf);
 					RTPpacket video_packet = new RTPpacket(CommonValues.MJPEG_TYPE, (imagenb),// + videoSkips),
 							(imagenb /*+ videoSkips*/) * CommonValues.PLAYBACK_FRAME_PERIOD, vBuf, video_length);
-					byte[] video_bits = new byte[video_packet.getlength()];
-					video_packet.getpacket(video_bits);
+					byte[] video_bits = new byte[video_packet.getSize()];
+					video_bits = video_packet.getPacket();
 					vsenddp = new DatagramPacket(video_bits, video_bits.length, ClientIPAddr, RTP_dest_port);
 					// DEBUG: Add random lost packets
 					// if((Math.random()*100d) < 95)
 					VideoSocket.send(vsenddp);
 					// print the header bitstream
 					if (verbose)
-						video_packet.printheader();
+						video_packet.printHeader();
 					// update GUI
 					SwingUtilities.invokeLater(new UpdateLabel());
 					// Sleep for the video frame period
@@ -306,9 +308,10 @@ public class Server extends JFrame {
 		}
 	}
 
-	// ------------------------
-	// Handler for audio thread
-	// ------------------------
+	/**
+	 * Thread to handle audio sending.
+	 * Sends audio chunks to the client at a specified rate.
+	 */
 	class AudioSender implements Runnable {
 		public void run() {
 			// if the current audionb is less than the length of the video keep going
@@ -332,8 +335,8 @@ public class Server extends JFrame {
 					int audio_length = audioCodec.getnextchunk(aBuf);
 					RTPpacket audio_packet = new RTPpacket(CommonValues.RAW_TYPE, audionb,
 							(audionb) * CommonValues.STREAMING_AUDIO_FRAME_PERIOD, aBuf, audio_length);
-					byte[] audio_bits = new byte[audio_packet.getlength()];
-					audio_packet.getpacket(audio_bits);
+					byte[] audio_bits = new byte[audio_packet.getSize()];
+					audio_bits = audio_packet.getPacket();
 					asenddp = new DatagramPacket(audio_bits, audio_bits.length, ClientIPAddr, RTP_dest_port);
 
 					// DEBUG: Add random lost packets
@@ -342,7 +345,7 @@ public class Server extends JFrame {
 
 					// print the header bitstream
 					if (verbose)
-						audio_packet.printheader();
+						audio_packet.printHeader();
 					// update GUI
 					SwingUtilities.invokeLater(new UpdateLabel());
 					// Sleep for the audio frame period
@@ -357,9 +360,11 @@ public class Server extends JFrame {
 		}
 	}
 
-	// ------------------------------------
-	// Parse RTSP Request
-	// ------------------------------------
+	/**
+	 * Parse the RTSP request from the client.
+	 * 
+	 * @return The type of RTSP request (SETUP, PLAY, PAUSE, TEARDOWN).
+	 */
 	private int parse_RTSP_request() {
 		int request_type = -1;
 		try {
@@ -415,9 +420,10 @@ public class Server extends JFrame {
 		return (request_type);
 	}
 
-	// ------------------------------------
-	// Send RTSP Response
-	// ------------------------------------
+	/**
+	 * Send a response to the RTSP client.
+	 * The response includes the RTSP version, CSeq, and Session ID.
+	 */
 	private void send_RTSP_response() {
 		try {
 			RTSPBufferedWriter.write("RTSP/1.0 200 OK" + CRLF);
@@ -433,7 +439,10 @@ public class Server extends JFrame {
 		}
 	}
 
-	// Cleanup method
+	/**
+	 * Cleanly exit the server by stopping threads, closing sockets, and exiting the program.
+	 * This method is called when the server window is closed or when a TEARDOWN request is received.
+	 */
 	private void cleanExit() {
 		try {
 			// Stop the threads

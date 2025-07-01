@@ -32,8 +32,8 @@ class FECpacketTest {
         FECpacket fec = new FECpacket(rtpPackets);
 
         // Get the FEC packet bytes
-        byte[] fecBytes = new byte[fec.getFECPacketSize()];
-        fecBytes = fec.getFECPacket();
+        byte[] fecBytes = new byte[fec.getFecPacketSize()];
+        fecBytes = fec.getFecPacket();
 
         // Check flags (first byte should be 0x00)
         assertEquals(0x00, fecBytes[0]); // E, L, P, X, CC, M bits
@@ -114,15 +114,15 @@ class FECpacketTest {
             RTPpacket recovered = fec.recoverPacket(received, lostIdx);
 
             // Check all fields
-            assertEquals(orig[lostIdx].getpayloadtype(), recovered.getpayloadtype(), "Payload type mismatch");
-            assertEquals(orig[lostIdx].getsequencenumber(), recovered.getsequencenumber(), "Sequence number mismatch");
-            assertEquals(orig[lostIdx].gettimestamp(), recovered.gettimestamp(), "Timestamp mismatch");
-            assertEquals(orig[lostIdx].getpayload_length(), recovered.getpayload_length(), "Payload length mismatch");
+            assertEquals(orig[lostIdx].getPayloadType(), recovered.getPayloadType(), "Payload type mismatch");
+            assertEquals(orig[lostIdx].getSequenceNumber(), recovered.getSequenceNumber(), "Sequence number mismatch");
+            assertEquals(orig[lostIdx].getTimeStamp(), recovered.getTimeStamp(), "Timestamp mismatch");
+            assertEquals(orig[lostIdx].getPayloadLength(), recovered.getPayloadLength(), "Payload length mismatch");
 
-            byte[] expectedPayload = new byte[orig[lostIdx].getpayload_length()];
-            byte[] actualPayload = new byte[recovered.getpayload_length()];
-            orig[lostIdx].getpayload(expectedPayload);
-            recovered.getpayload(actualPayload);
+            byte[] expectedPayload = new byte[orig[lostIdx].getPayloadLength()];
+            byte[] actualPayload = new byte[recovered.getPayloadLength()];
+            expectedPayload = orig[lostIdx].getPayload();
+            actualPayload = recovered.getPayload();
             assertArrayEquals(expectedPayload, actualPayload, "Payload data mismatch");
         }
     }
