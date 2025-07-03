@@ -101,6 +101,8 @@ public class Server extends JFrame {
 
 	final static String CRLF = "\r\n";
 
+	
+	public int lost = 0; // Number of lost packets (simulated)
 	/**
 	 * Constructor of the Server class. Initializes the GUI and prepares the server to
 	 * accept RTSP requests.
@@ -189,9 +191,9 @@ public class Server extends JFrame {
 				theServer.VIDEO_LENGTH = theServer.videoCodec.getNumFrames();
 				//theServer.FRAME_PERIOD = (int) (1000 / theServer.videoCodec.getFPS());
 				theServer.videoThread = new Thread(theServer.new VideoSender());
-				if (!theServer.verbose)
+				if (theServer.verbose)
 					System.out.println("DEBUG: FPS: " + theServer.videoCodec.getFPS() + " PLAYBACK_FRAME_PERIOD: "
-							+ CommonValues.PLAYBACK_FRAME_PERIOD + "STREAMING_FRAME_PERIOD: " + CommonValues.STREAMING_FRAME_PERIOD);
+							+ CommonValues.PLAYBACK_FRAME_PERIOD + " STREAMING_FRAME_PERIOD: " + CommonValues.STREAMING_FRAME_PERIOD);
 
 				// Add a frame per second to send FEC packets
 				// theServer.FRAME_PERIOD = 1000 / (theServer.codec.getFPS()+1);
@@ -201,7 +203,7 @@ public class Server extends JFrame {
 				theServer.audioCodec = new Codec(VideoFileName); // Use different codec for audio to read audio data
 																	// separately
 				theServer.audioThread = new Thread(theServer.new AudioSender());
-				if (!theServer.verbose)
+				if (theServer.verbose)
 					System.out.println("DEBUG: AUDIO_FRAME_PERIOD: " + CommonValues.PLAYBACK_AUDIO_FRAME_PERIOD 
 							+ " STREAMING_AUDIO_FRAME_PERIOD: " + CommonValues.STREAMING_AUDIO_FRAME_PERIOD);
 
@@ -283,14 +285,19 @@ public class Server extends JFrame {
 					imagenb++; // Increment video frame number (Counted separately for GUI purposes)
 					videoSkips += (videoCodec.isNextFrameAudio()) ? 1 : 0; // Count adds if the next frame is not video
 					int video_length = videoCodec.getnextframe(vBuf);
-					RTPpacket video_packet = new RTPpacket(CommonValues.MJPEG_TYPE, (imagenb),// + videoSkips),
-							(imagenb /*+ videoSkips*/) * CommonValues.PLAYBACK_FRAME_PERIOD, vBuf, video_length);
+					RTPpacket video_packet = new RTPpacket(CommonValues.MJPEG_TYPE, (imagenb),
+							(int) (System.currentTimeMillis() % Integer.MAX_VALUE), vBuf, video_length);
 					byte[] video_bits = new byte[video_packet.getSize()];
 					video_bits = video_packet.getPacket();
 					vsenddp = new DatagramPacket(video_bits, video_bits.length, ClientIPAddr, RTP_dest_port);
+					
 					// DEBUG: Add random lost packets
-					// if((Math.random()*100d) < 95)
+					/* if((Math.random()*100d) > 95){
+						 lost++;
+						 System.out.println("DEBUG: Video packet lost! Total lost packets: " + lost);
+					 } else*/
 					VideoSocket.send(vsenddp);
+					
 					// print the header bitstream
 					if (verbose)
 						video_packet.printHeader();
@@ -334,7 +341,7 @@ public class Server extends JFrame {
 					audioSkips += (audioCodec.isNextFrameAudio()) ? 0 : 1; // Count adds if the next frame is not audio
 					int audio_length = audioCodec.getnextchunk(aBuf);
 					RTPpacket audio_packet = new RTPpacket(CommonValues.RAW_TYPE, audionb,
-							(audionb) * CommonValues.STREAMING_AUDIO_FRAME_PERIOD, aBuf, audio_length);
+							(int) (System.currentTimeMillis() % Integer.MAX_VALUE), aBuf, audio_length);
 					byte[] audio_bits = new byte[audio_packet.getSize()];
 					audio_bits = audio_packet.getPacket();
 					asenddp = new DatagramPacket(audio_bits, audio_bits.length, ClientIPAddr, RTP_dest_port);

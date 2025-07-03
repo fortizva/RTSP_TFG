@@ -23,6 +23,7 @@ import java.net.SocketException;
 import java.util.StringTokenizer;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.TimeUnit;
+
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
@@ -30,11 +31,12 @@ import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JEditorPane;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+
 import com.fortizva.packets.CommonValues;
 import com.fortizva.packets.RTPpacket;
 
@@ -57,26 +59,13 @@ public class Client {
 
 	JFrame stats = new JFrame("Stats");
 	JPanel statsPanel = new JPanel();
-	JLabel statsLabel = new JLabel("Sample Text");
+	JEditorPane statsPane = new JEditorPane();
 
-	// Stats
-	// ---
-	static int received_bytes = 0;
-	static int last_packet_nb = 0;
-	static int last_video_nb = 0;
-	static int lost_packets = 0;
-	static int packet_loss = 0;
-	// Retardo y jitter
-	static long packet_delay = 0l;
-	static long last_packet_time = 0l;
-	static long last_packet_delay = 0l;
-	static long jitter = 0l;
-	// FPS
-	long last_fps_update_time = 0;
-	int last_fps_video_nb = 0;
-	double current_fps = 0;
-	// ----
-
+	// Stream statistics
+	// ---------------
+	StreamStats videoStats = new StreamStats();
+	StreamStats audioStats = new StreamStats();
+	
 	// DEBUG
 	// ----
 	static boolean verbose = false;
@@ -161,20 +150,32 @@ public class Client {
 		f.getContentPane().add(mainPanel, BorderLayout.CENTER);
 		f.setSize(new Dimension(390, 370));
 		f.setVisible(true);
-
+		
 		// stats layout
-		statsPanel.setLayout(null);
-		statsLabel.setText(getStats());
-		statsLabel.setBounds(0, 0, 140, 370);
-		statsLabel.setVerticalAlignment(SwingConstants.TOP);
-		statsLabel.setHorizontalAlignment(SwingConstants.LEFT);
-		statsLabel.setVisible(true);
-		statsPanel.add(statsLabel);
+		statsPane.setContentType("text/html");
+		statsPane.setEditable(false);
+		// Force the JEditorPane to not have a scroll pane and to use the full size
+		statsPane.setPreferredSize(null);
+		statsPane.setMinimumSize(null);
+		
+		statsPanel.setLayout(new BorderLayout());
+		statsPanel.add(statsPane, BorderLayout.CENTER);
+		
+		statsPane.setText(getStats());
+		statsPane.setVisible(true);
 		stats.getContentPane().add(statsPanel, BorderLayout.CENTER);
-		// stats.setSize(new Dimension(150, 220));
-		stats.setBounds(400, 0, 180, 370);
-		stats.setVisible(true);
+		stats.pack();
 
+		// Set preferred size for statsLabel and stats window
+		statsPane.setSize(new Dimension(300, 370)); // width, height
+		statsPanel.setPreferredSize(new Dimension(300, 370));
+		stats.setSize(new Dimension(320, 370)); // width, height
+		
+
+		stats.setResizable(false);
+		stats.setLocation(400, 0);
+		stats.setVisible(true);
+		
 		// allocate enough memory for the buffer used to receive data from the server
 		buf = new byte[15000];
 		videoBuffer = new PriorityBlockingQueue<RTPpacket>(1000);
@@ -213,22 +214,71 @@ public class Client {
 	// Print stats
 	// -----------------------------------
 	public String getStats() {
-		String s = new String("<html><br>Stream statistics:</br>");
-		s += "<br>Video file: " + VideoFileName + "</br>";
-		s += String.format("<br>FPS: %.2f</br>", current_fps);
-		s += "<br>Last packet #: " + last_packet_nb + "</br>";
-		s += "<br>Lost packets: " + lost_packets + "</br>";
-		s += "<br>Packet loss: " + packet_loss + "%</br>";
-		s += "<br>Packet delay (milis): " + packet_delay + "</br>";
-		s += "<br>Received bytes: " + received_bytes + "</br>";
-		s += "<br>Jitter (milis): " + ((jitter >= 0) ? "+" : "") + jitter + "</br>";
-		s += "</html>";
+		String s = "<html>\n" +
+		           "  <body style=\"font-family: Arial, sans-serif; font-size: 1em; margin: 0px; padding: 0px 10px 10px 10px; width: 100%; box-sizing: border-box\">\n" +
+		           "    <h3 style=\"color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 2px; margin-bottom: 1px;\">\n" +
+		           "      📊 Stream Statistics\n" +
+		           "    </h3>\n\n" +
+		           
+		           "    <h4 style=\"color: #e74c3c; margin: 1px 10px 0px 10px; padding-bottom:1px;\">🔉 Audio Stream:</h4>\n" +
+		           "    <div style=\"margin-left: 30px; width: 100%\">\n";
+		s += String.format("      <b>Received bytes:</b> %d<br>\n", audioStats.receivedBytes);
+		s += String.format("      <b>Received packets:</b> %d<br>\n", videoStats.receivedPackets);
+		s += String.format("      <b>Last packet #:</b> %d<br>\n", audioStats.lastPacketNb);
+		s += String.format("      <b>Lost packets:</b> %d<br>\n", audioStats.lostPackets);
+		s += String.format("      <b>Packet loss:</b> %d%%<br>\n", audioStats.packetLoss);
+		s += String.format("      <b>Packet delay (ms):</b> %d<br>\n", audioStats.packetDelay);
+		s += String.format("      <b>Jitter (ms):</b> %+d<br>\n", audioStats.jitter);
+		s += "    </div>\n\n" +
+		     
+		     "    <h4 style=\"color: #2ecc71; margin: 10px 10px 0px 10px; padding-bottom:1px;\">🎥 Video Stream:</h4>\n" +
+		     "    <div style=\"margin-left: 30px; width: 100%;\">\n";
+		s += String.format("      <b>Received bytes:</b> %d<br>\n", videoStats.receivedBytes);
+		s += String.format("      <b>Received packets:</b> %d<br>\n", videoStats.receivedPackets);
+		s += String.format("      <b>Last packet #:</b> %d<br>\n", videoStats.lastPacketNb);
+		s += String.format("      <b>Lost packets:</b> %d<br>\n", videoStats.lostPackets);
+		s += String.format("      <b>Packet loss:</b> %d%%<br>\n", videoStats.packetLoss);
+		s += String.format("      <b>Packet delay (ms):</b> %d<br>\n", videoStats.packetDelay);
+		s += String.format("      <b>Jitter (ms):</b> %+d<br>\n", videoStats.jitter);
+		s += String.format("      <b>Current FPS:</b> %.2f<br>\n", videoStats.currentFps);
+		s += "      <b>Frames since update #:</b> " + videoStats.framesSinceUpdate + "<br>\n";
+		s += "      <b>Last FPS update time:</b> " + videoStats.lastFpsUpdateTime + "<br>\n";
+		s += "    </div>\n" +
+		     "  </body>\n" +
+		     "</html>";
+		
 		return s;
+	}
+	
+	private void updateStats(StreamStats stats, RTPpacket rtp_packet) {
+		// Initialize stats if this is the first packet
+		if(stats.receivedPackets == 0) {
+			stats.initialPacketNb = rtp_packet.getSequenceNumber();
+		}
+		
+		// Update packet loss taking into account initial and last packet numbers
+		if (rtp_packet.getSequenceNumber() > stats.lastPacketNb + 1) {
+			stats.lostPackets += (rtp_packet.getSequenceNumber() - stats.lastPacketNb - 1);
+			stats.packetLoss = (stats.lostPackets * 100) / (rtp_packet.getSequenceNumber() - stats.initialPacketNb + 1);
+		}
+		
+		// Update packet delay and jitter
+		stats.lastPacketDelay = stats.packetDelay; // Save last packet delay to calculate jitter
+		stats.packetDelay = (stats.lastPacketTime == 0) ? 0
+				: System.currentTimeMillis() - stats.lastPacketTime;
+		stats.lastPacketTime = System.currentTimeMillis();
+		
+		stats.jitter = stats.lastPacketDelay - stats.packetDelay;
+		
+		// Update received bytes and packets
+		stats.receivedBytes += rtp_packet.getSize();
+		stats.receivedPackets++;
+		stats.lastPacketNb = rtp_packet.getSequenceNumber();
 	}
 
 	class UpdateStats implements Runnable {
 		public void run() {
-			statsLabel.setText(getStats());
+			statsPane.setText(getStats());
 		}
 	}
 
@@ -471,41 +521,41 @@ public class Client {
 							// print header bitstream:
 							rtp_packet.printHeader();
 						}
-
-						// -----------------------------
-						// Update stats
-						// -----------------------------
-						// Packet loss
-						if (rtp_packet.getSequenceNumber() > last_packet_nb + 1) {
-							lost_packets += (rtp_packet.getSequenceNumber() - last_packet_nb);
-							last_packet_nb = rtp_packet.getSequenceNumber();
-							packet_loss = (lost_packets * 100) / (last_packet_nb + 1);
-						} else
-							last_packet_nb = rtp_packet.getSequenceNumber();
-
-						// Packet delay
-						last_packet_delay = packet_delay; // Save last packet delay to calculate jitter
-						packet_delay = (last_packet_time == 0) ? 0 : System.currentTimeMillis() - last_packet_time;
-						last_packet_time = System.currentTimeMillis();
-
-						// Jitter
-						jitter = last_packet_delay - packet_delay;
-
-						// Bytes received
-						received_bytes += rcvdp.getLength();
-						// -----------------------------
-						// Update stats text (invokeLater to avoid deadlock)
-						SwingUtilities.invokeLater(() -> statsLabel.setText(getStats()));
-						// ------------------------------
-
+						
 						// Check if the packet is audio or video
 						if (rtp_packet.getPayloadType() == CommonValues.RAW_TYPE) {
 							audioBuffer.offer(rtp_packet);
+							
+							// -----------------------------
+							// Update audio stats
+							// -----------------------------
+							updateStats(audioStats, rtp_packet);
+							
 						} else if (rtp_packet.getPayloadType() == CommonValues.MJPEG_TYPE) {
 							videoBuffer.offer(rtp_packet);
+							
+							// -----------------------------
+							// Update video stats
+							// -----------------------------
+							updateStats(videoStats, rtp_packet);
+							// Update video-specific stats
+							videoStats.framesSinceUpdate++;
+							// Update FPS calculation
+							long now = System.currentTimeMillis();
+							if (now - videoStats.lastFpsUpdateTime >= 1000) {
+								videoStats.currentFps = videoStats.framesSinceUpdate / ((now - videoStats.lastFpsUpdateTime) / 1000.0);
+								videoStats.framesSinceUpdate = 0;
+								videoStats.lastFpsUpdateTime = now;							
+							}
+							
 						} else {
 							System.out.println("Unknown payload type: " + rtp_packet.getSequenceNumber());
 						}
+						// -----------------------------
+						// Update stats text (invokeLater to avoid deadlock)
+						SwingUtilities.invokeLater(() -> statsPane.setText(getStats()));
+						// ------------------------------
+
 					} catch (InterruptedIOException iioe) {
 						// We can ignore this exception as it is just a timeout
 						// System.out.println("Nothing to read");
@@ -550,7 +600,7 @@ public class Client {
 						payload = rtp_packet.getPayload();
 
 						// Increment the video frame number
-						last_video_nb++;
+						/*last_video_nb++;
 
 						// [Stats] FPS calculation
 						// -----------------
@@ -561,7 +611,8 @@ public class Client {
 							last_fps_update_time = now;
 						}
 						// -----------------
-
+						*/
+						
 						// get an Image object from the payload bitstream
 						Toolkit toolkit = Toolkit.getDefaultToolkit();
 						Image image = toolkit.createImage(payload, 0, payload_length);
