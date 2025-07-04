@@ -1,5 +1,8 @@
 package com.fortizva.packets;
-public class FECpacket {
+
+import java.util.Arrays;
+
+public class FECpacket implements Comparable<FECpacket> {
 
 	/* FEC Packet Format
 	 *  0                   1                   2                   3	(Bits)
@@ -241,13 +244,16 @@ public class FECpacket {
 		 */		
 		xorPayload = new byte[protectionLength]; // Initialize XOR payload with the size of the largest RTP packet
 		byte currentByte;
+		byte[] currentPayload; // Current RTP packet payload
 		boolean firstPacket = true; // Flag to check if it's the first packet to initialize the XOR payload
 		// Iterate through each RTP packet and perform XOR operation on payloads
 		for (RTPpacket rtpPacket : rtpPackets) {
 			if(firstPacket) {
-				xorPayload = rtpPacket.getPayload(); // Get the first packet payload to initialize the XOR payload
-			}else {
-				byte[] currentPayload = new byte[rtpPacket.getPayloadLength()];
+				currentPayload = rtpPacket.getPayload(); // Get the first packet payload to initialize the XOR payload
+				// Copy the first packet payload to the XOR payload
+				System.arraycopy(currentPayload, 0, xorPayload, 0, currentPayload.length);
+			} else {
+				currentPayload = new byte[rtpPacket.getPayloadLength()];
 				currentPayload = rtpPacket.getPayload();
 				for (int i = 0; i < xorPayload.length; i++) {
 					currentByte = (i < currentPayload.length) ? currentPayload[i] : 0; // Fill with 0 if index exceeds payload length
@@ -264,6 +270,56 @@ public class FECpacket {
 		for (int i = 0; i < xorPayload.length; i++) {
 			fecPacketBytes[totalHeaderLength + i] = xorPayload[i]; // Start filling after the protection mask
 		}
+	}
+	
+	/**
+	 * FECpacket constructor that parses the FECpacket object from byte[]
+	 * */
+	public FECpacket(byte[] fecPacketBytes) {
+		this.fecPacketBytes = fecPacketBytes.clone();
+		// Flags
+		flags[0] = fecPacketBytes[0];
+		flags[1] = fecPacketBytes[1];
+		ptRecovery = flags[1] & 0x7F; // PT recovery is lower 7 bits
+		
+		// Base Sequence Number (2 bytes: bytes 2 and 3)
+		baseSequenceNumber = ((fecPacketBytes[2] & 0xFF) << 8) | (fecPacketBytes[3] & 0xFF);
+		
+		// Timestamp Recovery (4 bytes: bytes 4-7)
+		timestampRecovery = ((fecPacketBytes[4] & 0xFF) << 24) |
+		                    ((fecPacketBytes[5] & 0xFF) << 16) |
+		                    ((fecPacketBytes[6] & 0xFF) << 8) |
+		                    (fecPacketBytes[7] & 0xFF);
+		
+		// Length Recovery (2 bytes: bytes 8-9)
+		lengthRecovery = ((fecPacketBytes[8] & 0xFF) << 8) | (fecPacketBytes[9] & 0xFF);
+		
+		// Protection Length (2 bytes: bytes 10-11)
+		protectionLength = ((fecPacketBytes[10] & 0xFF) << 8) | (fecPacketBytes[11] & 0xFF);
+		
+		// Protection Mask (2 bytes: bytes 12-13)
+		protectionMask[0] = fecPacketBytes[12];
+		protectionMask[1] = fecPacketBytes[13];
+		
+		// Mask length (number of RTP packets protected by this FEC packet, parsed as a bitmask)
+		maskLength = 0;
+		for (int i = 0; i < 8; i++) {
+		    if ((protectionMask[0] & (1 << (7 - i))) != 0) {
+		        maskLength++;
+		    }
+		}
+		for (int i = 0; i < 8; i++) {
+		    if ((protectionMask[1] & (1 << (7 - i))) != 0) {
+		        maskLength++;
+		    }
+		}
+		
+		// XOR Payload (starts at byte 14, length = protectionLength)
+		xorPayload = new byte[protectionLength];
+		System.arraycopy(fecPacketBytes, 14, xorPayload, 0, protectionLength);
+		
+		// FEC packet size (excluding RTP header)
+		    packetFECSize = fecPacketBytes.length;
 	}
 	
 	/**
@@ -299,8 +355,8 @@ public class FECpacket {
 	
 	    for (int i = 0, j = 0; i < maskLength-1; i++) { // maskLength-1 because we are recovering one packet
 		        byte[] p = new byte[protectionLength];
-		        byte[] origPayload = new byte[receivedPackets[j].getPayloadLength()];
-		        origPayload = receivedPackets[j].getPayload();
+		        byte[] origPayload = receivedPackets[j].getPayload();
+
 		        System.arraycopy(origPayload, 0, p, 0, origPayload.length);
 		        for (int k = 0; k < protectionLength; k++) {
 		            recoveredPayload[k] ^= p[k];
@@ -315,7 +371,8 @@ public class FECpacket {
 	    // Build and return the recovered RTPpacket
 	    return new RTPpacket(recoveredPT, recoveredSeq, recoveredTs, finalPayload, recoveredLen);
 	}
-
+	
+	
 	
 	/**
 	 * Returns the flags field of the FEC packet.
@@ -387,5 +444,41 @@ public class FECpacket {
 	 */
 	public byte[] getFecPacket() {
 		return fecPacketBytes.clone();
+	}
+	
+	/**
+	 * Returns an array with all the calculated sequence numbers of the RTP packets protected by this FEC packet.
+	 * Only marked bits in the protection mask are considered.
+	 * @return Array of protected sequence numbers, -1 for unprotected packets.
+	 */
+	public int[] getProtectedSequenceNumbers() {
+		int[] protectedSeqNumbers = new int[maskLength]; // Array to hold protected sequence numbers, we initialize it with -1s
+		Arrays.fill(protectedSeqNumbers, -1); // Fill with -1 to indicate unprotected packets
+		
+		int p = 0; // Index for protected sequence numbers
+		for (int i = 0; i < 16; i++) { // 16 bits in the protection mask
+			if ((protectionMask[i / 8] & (1 << (7 - (i % 8)))) != 0) {
+				protectedSeqNumbers[p++] = baseSequenceNumber + i;
+			}
+		}
+		return protectedSeqNumbers;
+	}
+	
+	/**
+	 * Compares this FEC packet with another FEC packet based on their base sequence numbers.
+	 * @param p The FEC packet to compare with.
+	 * @return A negative integer, zero, or a positive integer as this packet's base sequence number
+	 * 		is less than, equal to, or greater than the specified packet's base sequence number.
+	 */
+	@Override
+	public int compareTo(FECpacket p) {
+		// Compare FEC packets based on their sequence number
+		if (this.baseSequenceNumber < p.baseSequenceNumber) {
+			return -1;
+		} else if (this.baseSequenceNumber > p.baseSequenceNumber) {
+			return 1;
+		} else {
+			return 0; // They are equal
+		}
 	}
 }

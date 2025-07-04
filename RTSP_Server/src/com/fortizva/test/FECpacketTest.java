@@ -126,5 +126,70 @@ class FECpacketTest {
             assertArrayEquals(expectedPayload, actualPayload, "Payload data mismatch");
         }
     }
+    
+    @Test
+	void testFECpacketReconstructionFromByteArray() {
+	    // Dummy RTP packets
+	    byte[] payload1 = { 0x01, 0x02, 0x03, 0x04 };
+	    byte[] payload2 = { 0x05, 0x06, 0x07, 0x08 };
+	    int seq1 = 200;
+	    int seq2 = 201;
+	    int ts1 = 0x11112222;
+	    int ts2 = 0x33334444;
+	    int ptype = 97;
+	
+	    RTPpacket rtp1 = new RTPpacket(ptype, seq1, ts1, payload1, payload1.length);
+	    RTPpacket rtp2 = new RTPpacket(ptype, seq2, ts2, payload2, payload2.length);
+	    RTPpacket[] rtpPackets = { rtp1, rtp2 };
+	
+	    // Create FECpacket and serialize to byte[]
+	    FECpacket originalFec = new FECpacket(rtpPackets);
+	    byte[] fecBytes = originalFec.getFecPacket();
+	
+	    // Reconstruct FECpacket from byte[]
+	    FECpacket reconstructedFec = new FECpacket(fecBytes);
+	
+	    // Check fields
+	    assertArrayEquals(originalFec.getFlags(), reconstructedFec.getFlags(), "Flags mismatch");
+	    assertEquals(originalFec.getPtRecovery(), reconstructedFec.getPtRecovery(), "PT recovery mismatch");
+	    assertEquals(originalFec.getBaseSequenceNumber(), reconstructedFec.getBaseSequenceNumber(), "Base sequence mismatch");
+	    assertEquals(originalFec.getMaskLength(), reconstructedFec.getMaskLength(), "Mask length mismatch");
+	    assertArrayEquals(originalFec.getProtectionMask(), reconstructedFec.getProtectionMask(), "Protection mask mismatch");
+	    assertEquals(originalFec.getFecPacketSize(), reconstructedFec.getFecPacketSize(), "FEC packet size mismatch");
+	    assertArrayEquals(originalFec.getXorPayload(), reconstructedFec.getXorPayload(), "XOR payload mismatch");
+	    assertArrayEquals(originalFec.getFecPacket(), reconstructedFec.getFecPacket(), "FEC packet bytes mismatch");
+		
+	    // Full byte[] assert for the reconstructed FECpacket
+		assertArrayEquals(fecBytes, reconstructedFec.getFecPacket(), "Full FEC packet byte[] mismatch");
+	}
+
+    @Test
+	void testGetProtectedSequenceNumbers() {
+	    // Prepare dummy RTP packets with consecutive sequence numbers
+	    int baseSeq = 500;
+	    int ptype = 98;
+	    int ts = 0xABCDEF01;
+	    byte[] payload = { 0x01, 0x02, 0x03 };
+	
+	    RTPpacket rtp1 = new RTPpacket(ptype, baseSeq, ts, payload, payload.length);
+	    RTPpacket rtp2 = new RTPpacket(ptype, baseSeq + 1, ts + 1, payload, payload.length);
+	    RTPpacket rtp3 = new RTPpacket(ptype, baseSeq + 2, ts + 2, payload, payload.length);
+	
+	    RTPpacket[] rtpPackets = { rtp1, rtp2, rtp3 };
+	    FECpacket fec = new FECpacket(rtpPackets);
+	
+	    // The mask should protect the 3 consecutive sequence numbers
+	    int[] expected = { baseSeq, baseSeq + 1, baseSeq + 2 };
+	
+	    int[] actual = fec.getProtectedSequenceNumbers();
+	
+	    // Only the first 3 entries should be filled, rest should be -1
+	    for (int i = 0; i < expected.length; i++) {
+	        assertEquals(expected[i], actual[i], "Protected sequence number mismatch at index " + i);
+	    }
+	    for (int i = expected.length; i < actual.length; i++) {
+	        assertEquals(-1, actual[i], "Expected -1 for unused protected sequence number at index " + i);
+	    }
+	}
 
 }

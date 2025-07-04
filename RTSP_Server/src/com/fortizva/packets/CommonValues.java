@@ -17,12 +17,13 @@ public class CommonValues {
 	public static final int RTP_SSRC = 0; // Synchronization source identifier
 	
 	// FEC packet constants
-	public static final int FEC_PTYPE = 0xBE; // Payload type for FEC packets
+	public static final int FEC_PTYPE = 116; // Payload type for FEC packets
 	public static final int FEC_E = 0; // FEC packet extension flag
 	public static final int FEC_L = 0; // FEC packet long-mask 
+	public static final int FEC_FREQUENCY = 5; // Frequency that the FEC packet is sent at (in video packets)
 
 	// Timers
-	public static final int STREAMING_FRAME_PERIOD = 40; // Frame period of the video to stream, in ms
+	public static final int STREAMING_FRAME_PERIOD = 35; // Frame period of the video to stream, in ms
 	public static final int PLAYBACK_FRAME_PERIOD = 40; // Frame period of the video to playback, in ms
 	public static final int STREAMING_AUDIO_FRAME_PERIOD = 40; // Frame period of the audio to stream, in ms (See Codec.java for more details)
 	public static final int PLAYBACK_AUDIO_FRAME_PERIOD = 40; //Frame period of the audio to stream, in ms (See Codec.java for more details)

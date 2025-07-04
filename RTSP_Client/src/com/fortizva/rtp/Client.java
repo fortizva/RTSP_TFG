@@ -21,6 +21,8 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.StringTokenizer;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -38,6 +40,7 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
 import com.fortizva.packets.CommonValues;
+import com.fortizva.packets.FECpacket;
 import com.fortizva.packets.RTPpacket;
 
 /**
@@ -79,6 +82,8 @@ public class Client {
 	Thread rtpSocketListener; // thread used to receive data from the UDP socket
 	Thread videoThread; // thread used to process video frames
 	Thread audioThread; // thread used to process audio frames
+	Thread fecThread; // thread used to handle FEC packets
+	Timer statsTimer; // Timer used to update stats periodically
 	// ----------------
 
 	// RTP variables:
@@ -90,6 +95,8 @@ public class Client {
 	final static int BUFFER_TIMEOUT = 60; // Timeout for the buffer
 	PriorityBlockingQueue<RTPpacket> videoBuffer;
 	PriorityBlockingQueue<RTPpacket> audioBuffer;
+	PriorityBlockingQueue<FECpacket> fecQueue; // FEC queue used to store FEC packets for processing
+	PriorityBlockingQueue<RTPpacket> protectionBuffer; // FEC buffer used to store protected packets
 
 	byte[] buf; // buffer used to store data received from the server
 
@@ -167,9 +174,9 @@ public class Client {
 		stats.pack();
 
 		// Set preferred size for statsLabel and stats window
-		statsPane.setSize(new Dimension(300, 370)); // width, height
-		statsPanel.setPreferredSize(new Dimension(300, 370));
-		stats.setSize(new Dimension(320, 370)); // width, height
+		statsPane.setSize(new Dimension(600, 370)); // width, height
+		statsPanel.setPreferredSize(new Dimension(600, 370));
+		stats.setSize(new Dimension(620, 370)); // width, height
 		
 
 		stats.setResizable(false);
@@ -180,6 +187,9 @@ public class Client {
 		buf = new byte[15000];
 		videoBuffer = new PriorityBlockingQueue<RTPpacket>(1000);
 		audioBuffer = new PriorityBlockingQueue<RTPpacket>(1000);
+		fecQueue = new PriorityBlockingQueue<FECpacket>(100); // FEC queue for FEC packets
+		/** Buffer used to store FEC-protected packets. Size is set to 2 times the FEC Frequency */
+		protectionBuffer = new PriorityBlockingQueue<RTPpacket>(2*CommonValues.FEC_FREQUENCY);
 
 		// Init RTP socket listener thread
 		rtpSocketListener = new Thread(new RTPSocketListener());
@@ -189,8 +199,18 @@ public class Client {
 
 		videoThread = new Thread(new videoTimerListener());
 		audioThread = new Thread(new audioTimerListener());
+		fecThread = new Thread(new FECListener());
 		videoThread.setDaemon(true);
 		audioThread.setDaemon(true);
+		fecThread.setDaemon(true);
+		
+		statsTimer = new Timer();
+		statsTimer.scheduleAtFixedRate(new TimerTask() {
+		    public void run() {
+		        String html = getStats(); // Run outside EDT!
+		        SwingUtilities.invokeLater(() -> statsPane.setText(html)); // Fast GUI update
+		    }
+		}, 0, 500); // every 500ms
 			
 	}
 
@@ -214,41 +234,53 @@ public class Client {
 	// Print stats
 	// -----------------------------------
 	public String getStats() {
-		String s = "<html>\n" +
-		           "  <body style=\"font-family: Arial, sans-serif; font-size: 1em; margin: 0px; padding: 0px 10px 10px 10px; width: 100%; box-sizing: border-box\">\n" +
-		           "    <h3 style=\"color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 2px; margin-bottom: 1px;\">\n" +
-		           "      📊 Stream Statistics\n" +
-		           "    </h3>\n\n" +
-		           
-		           "    <h4 style=\"color: #e74c3c; margin: 1px 10px 0px 10px; padding-bottom:1px;\">🔉 Audio Stream:</h4>\n" +
-		           "    <div style=\"margin-left: 30px; width: 100%\">\n";
-		s += String.format("      <b>Received bytes:</b> %d<br>\n", audioStats.receivedBytes);
-		s += String.format("      <b>Received packets:</b> %d<br>\n", videoStats.receivedPackets);
-		s += String.format("      <b>Last packet #:</b> %d<br>\n", audioStats.lastPacketNb);
-		s += String.format("      <b>Lost packets:</b> %d<br>\n", audioStats.lostPackets);
-		s += String.format("      <b>Packet loss:</b> %d%%<br>\n", audioStats.packetLoss);
-		s += String.format("      <b>Packet delay (ms):</b> %d<br>\n", audioStats.packetDelay);
-		s += String.format("      <b>Jitter (ms):</b> %+d<br>\n", audioStats.jitter);
-		s += "    </div>\n\n" +
-		     
-		     "    <h4 style=\"color: #2ecc71; margin: 10px 10px 0px 10px; padding-bottom:1px;\">🎥 Video Stream:</h4>\n" +
-		     "    <div style=\"margin-left: 30px; width: 100%;\">\n";
-		s += String.format("      <b>Received bytes:</b> %d<br>\n", videoStats.receivedBytes);
-		s += String.format("      <b>Received packets:</b> %d<br>\n", videoStats.receivedPackets);
-		s += String.format("      <b>Last packet #:</b> %d<br>\n", videoStats.lastPacketNb);
-		s += String.format("      <b>Lost packets:</b> %d<br>\n", videoStats.lostPackets);
-		s += String.format("      <b>Packet loss:</b> %d%%<br>\n", videoStats.packetLoss);
-		s += String.format("      <b>Packet delay (ms):</b> %d<br>\n", videoStats.packetDelay);
-		s += String.format("      <b>Jitter (ms):</b> %+d<br>\n", videoStats.jitter);
-		s += String.format("      <b>Current FPS:</b> %.2f<br>\n", videoStats.currentFps);
-		s += "      <b>Frames since update #:</b> " + videoStats.framesSinceUpdate + "<br>\n";
-		s += "      <b>Last FPS update time:</b> " + videoStats.lastFpsUpdateTime + "<br>\n";
-		s += "    </div>\n" +
-		     "  </body>\n" +
-		     "</html>";
-		
-		return s;
+	    String s = "<html>\n" +
+	    "<body style=\"font-family: Arial, sans-serif; font-size: 1em; margin: 0px; padding: 0px 10px 10px 10px; width: 100%; box-sizing: border-box\">\n" +
+	    "  <h3 style=\"color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 2px; margin-bottom: 1px;\">\n" +
+	    "    📊 Stream Statistics\n" +
+	    "  </h3>\n" +
+	    "  <table width=\"100%\"><tr><td valign=\"top\" style=\"min-width:250px;\">\n" +
+	    "    <h4 style=\"color: #e74c3c; margin: 1px 10px 0px 10px; padding-bottom:1px;\">🔉 Audio Stream:</h4>\n" +
+	    "    <div style=\"margin-left: 10px; width: 100%\">\n";
+	s += String.format("      <b>Received bytes:</b> %d<br>\n", audioStats.receivedBytes);
+	s += String.format("      <b>Received packets:</b> %d<br>\n", audioStats.receivedPackets);
+	s += String.format("	  <b>Buffer size:</b> %d packets<br>\n", audioStats.bufferSize);
+	s += String.format("      <b>Initial packet #:</b> %d<br>\n", audioStats.initialPacketNb);
+	s += String.format("      <b>Last packet #:</b> %d<br>\n", audioStats.lastReceivedPacketNb);
+	s += String.format("      <b>Last played packet #:</b> %d<br>\n", audioStats.lastPlayedPacketNb);
+	s += String.format("      <b>Lost packets:</b> %d<br>\n", audioStats.lostPackets);
+	s += String.format("      <b>Packet loss:</b> %d%%<br>\n", audioStats.packetLoss);
+	s += String.format("      <b>Packet delay (ms):</b> %d<br>\n", audioStats.packetDelay);
+	s += String.format("      <b>Jitter (ms):</b> %+d<br>\n", audioStats.jitter);
+	s += "    </div>\n" +
+	     "  </td>\n" +
+	     "  <td valign=\"top\" style=\"min-width:250px;\">\n" +
+	     "    <h4 style=\"color: #2ecc71; margin: 0px 10px 0px 10px; padding-bottom:1px;\">🎥 Video Stream:</h4>\n" +
+	     "    <div style=\"margin-left: 10px; width: 100%;\">\n";
+	s += String.format("      <b>Received bytes:</b> %d<br>\n", videoStats.receivedBytes);
+	s += String.format("      <b>Received packets:</b> %d<br>\n", videoStats.receivedPackets);
+	s += String.format("	  <b>Buffer size:</b> %d packets<br>\n", videoStats.bufferSize);
+	s += String.format("      <b>Initial packet #:</b> %d<br>\n", videoStats.initialPacketNb);
+	s += String.format("      <b>Last packet #:</b> %d<br>\n", videoStats.lastReceivedPacketNb);
+	s += String.format("      <b>Last played packet #:</b> %d<br>\n", videoStats.lastPlayedPacketNb);
+	s += String.format("      <b>Lost packets:</b> %d<br>\n", videoStats.lostPackets);
+	s += String.format("      <b>Packet loss:</b> %d%%<br>\n", videoStats.packetLoss);
+	s += String.format("      <b>Packet delay (ms):</b> %d<br>\n", videoStats.packetDelay);
+	s += String.format("      <b>Jitter (ms):</b> %+d<br>\n", videoStats.jitter);
+	s += String.format("      <b>Current FPS:</b> %.2f<br>\n", videoStats.currentFps);
+	s += "      <b>Frames since update #:</b> " + videoStats.framesSinceUpdate + "<br>\n";
+	s += "      <b>Last FPS update time:</b> " + videoStats.lastFpsUpdateTime + "<br>\n";
+	s += "      <b>FEC buffer size:</b> " + videoStats.fecBufferSize + "<br>\n";
+	s += "      <b>Recovered packets:</b> " + videoStats.recoveredPackets + "<br>\n";
+	s += "      <b>Late packets:</b> " + videoStats.latePackets + "<br>\n";
+	s += "    </div>\n" +
+	     "  </td></tr></table>\n" +
+	     "</body>\n" +
+	     "</html>";
+
+	    return s;
 	}
+
 	
 	private void updateStats(StreamStats stats, RTPpacket rtp_packet) {
 		// Initialize stats if this is the first packet
@@ -257,8 +289,8 @@ public class Client {
 		}
 		
 		// Update packet loss taking into account initial and last packet numbers
-		if (rtp_packet.getSequenceNumber() > stats.lastPacketNb + 1) {
-			stats.lostPackets += (rtp_packet.getSequenceNumber() - stats.lastPacketNb - 1);
+		if (rtp_packet.getSequenceNumber() > stats.lastReceivedPacketNb + 1) {
+			stats.lostPackets += (rtp_packet.getSequenceNumber() - stats.lastReceivedPacketNb - 1);
 			stats.packetLoss = (stats.lostPackets * 100) / (rtp_packet.getSequenceNumber() - stats.initialPacketNb + 1);
 		}
 		
@@ -273,7 +305,7 @@ public class Client {
 		// Update received bytes and packets
 		stats.receivedBytes += rtp_packet.getSize();
 		stats.receivedPackets++;
-		stats.lastPacketNb = rtp_packet.getSequenceNumber();
+		stats.lastReceivedPacketNb = rtp_packet.getSequenceNumber();
 	}
 
 	class UpdateStats implements Runnable {
@@ -401,14 +433,17 @@ public class Client {
 					}
 
 					// Start the video, audio and RTP threads
+					if (!rtpSocketListener.isAlive()) {
+						rtpSocketListener.start(); // start the RTP socket listener thread
+					}
+					if (!fecThread.isAlive()) {
+						fecThread.start(); // start the FEC handler thread
+					}
 					if (!videoThread.isAlive()) {
 						videoThread.start(); // start the video timer thread
 					}
 					if (!audioThread.isAlive()) {
 						audioThread.start(); // start the audio timer thread
-					}
-					if (!rtpSocketListener.isAlive()) {
-						rtpSocketListener.start(); // start the RTP socket listener thread
 					}
 				}
 			} // else if state != READY then do nothing
@@ -485,6 +520,13 @@ public class Client {
 				if (audioThread != null && audioThread.isAlive()) {
 					audioThread.interrupt(); // Interrupt the audio thread
 				}
+				if (fecThread != null && fecThread.isAlive()) {
+					fecThread.interrupt(); // Interrupt the FEC handler thread
+				}
+				// Stop stats timer
+				if (statsTimer != null) {
+					statsTimer.cancel(); // Cancel the stats timer
+				}
 				// RTPSocketListener should stop by itself on state change
 
 				// exit
@@ -530,32 +572,53 @@ public class Client {
 							// Update audio stats
 							// -----------------------------
 							updateStats(audioStats, rtp_packet);
+							// Update buffer size stats (synchronized)
+							synchronized (audioStats.bufferLock) {
+								audioStats.bufferSize++;
+							}
 							
 						} else if (rtp_packet.getPayloadType() == CommonValues.MJPEG_TYPE) {
 							videoBuffer.offer(rtp_packet);
+							protectionBuffer.offer(rtp_packet); // Add to FEC buffer as well
 							
 							// -----------------------------
 							// Update video stats
 							// -----------------------------
 							updateStats(videoStats, rtp_packet);
-							// Update video-specific stats
-							videoStats.framesSinceUpdate++;
-							// Update FPS calculation
-							long now = System.currentTimeMillis();
-							if (now - videoStats.lastFpsUpdateTime >= 1000) {
-								videoStats.currentFps = videoStats.framesSinceUpdate / ((now - videoStats.lastFpsUpdateTime) / 1000.0);
-								videoStats.framesSinceUpdate = 0;
-								videoStats.lastFpsUpdateTime = now;							
+							// Update buffer size stats (synchronized)
+							synchronized (videoStats.bufferLock) {
+								videoStats.bufferSize++;
+							}
+							synchronized (videoStats.protectionLock) {
+								videoStats.protectionBufferSize++;
+							}
+
+							
+						} else if (rtp_packet.getPayloadType() == CommonValues.FEC_PTYPE) {
+							// FEC packet handling
+							if(verbose)
+								System.out.println("Received FEC packet with SeqNum # " + rtp_packet.getSequenceNumber());
+							// Create FECpacket object from the received packet
+							FECpacket fec_packet = new FECpacket(rtp_packet.getPayload());
+							
+							// Add the FEC packet to the queue for processing
+							fecQueue.offer(fec_packet);
+							// Update FEC buffer size stats
+							synchronized (videoStats.fecLock) {
+								videoStats.fecBufferSize++;
 							}
 							
 						} else {
-							System.out.println("Unknown payload type: " + rtp_packet.getSequenceNumber());
+							System.out.println("Unknown payload type: " + rtp_packet.getPayloadType() + " - SequenceNumber: "
+									+ rtp_packet.getSequenceNumber());
 						}
-						// -----------------------------
+						
+						/*// -----------------------------
 						// Update stats text (invokeLater to avoid deadlock)
-						SwingUtilities.invokeLater(() -> statsPane.setText(getStats()));
+						String statsStr = getStats();
+						SwingUtilities.invokeLater(() -> statsPane.setText(statsStr));
 						// ------------------------------
-
+						*/
 					} catch (InterruptedIOException iioe) {
 						// We can ignore this exception as it is just a timeout
 						// System.out.println("Nothing to read");
@@ -571,6 +634,101 @@ public class Client {
 		}
 	}
 
+	class FECListener implements Runnable {
+	    public void run() {
+	        while (running) {
+	        	// We don't need to check for pause here, as the FEC thread should always be running.
+
+	        	try {
+		            FECpacket fec_packet = fecQueue.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call to get FEC packet
+		            if (fec_packet != null) { // If we got a FEC packet, we can process it. Active wait so we can safely stop the thread if needed.
+			            if (verbose) {
+			                System.out.println("[FECListener] Processing FEC packet with BaseSeqNum # " + fec_packet.getBaseSequenceNumber());
+			            }
+			            
+			            // Update buffer size stats (synchronized)
+						synchronized (videoStats.fecLock) {
+							videoStats.fecBufferSize--;
+						}
+			            
+			            // Look for missing packets in the protection buffer using FEC packet's base sequence number and mask
+						int baseSeqNum = fec_packet.getBaseSequenceNumber(); // Initial sequence number of the protected packets
+						int maskLength = fec_packet.getMaskLength(); // Total number of protected packets
+						
+						int pp = 0; // Index for protected packets array
+						boolean found = false; // Flag to indicate if a packet was found
+						int lostSeqNum = -1; // Sequence number of the last checked lost packet
+						RTPpacket[] protectedPackets = new RTPpacket[maskLength]; // Array to store protected packets found in the buffer
+						RTPpacket lostPacket = null;
+						
+						
+						// Iterate through the FECpacket's protected packets sequence numbers and look for them in the protection buffer
+						int[] protectedSequenceNb = fec_packet.getProtectedSequenceNumbers();
+						int seqNum = 0; // Sequence number of the packet being checked
+
+						for(int i = 0; i < protectedSequenceNb.length; i++) {
+							seqNum = protectedSequenceNb[i]; // Get the sequence number from the FEC packet
+							found = false; // Reset found flag for each sequence number
+							// Check if the packet is in the protection buffer
+							for (RTPpacket packet : protectionBuffer) {
+								if (packet.getSequenceNumber() == seqNum) {
+									protectedPackets[pp] = packet; // Store the found packet
+									pp++; // Increment the index for protected packets
+									found = true; // Mark that we found the packet
+									break; // Exit the inner loop (no need to check further)
+								}
+							}
+							if (!found) {
+								// If we reached the end of the loop and did not find any packet, it means we have lost packets
+								lostSeqNum = seqNum; // Store the sequence number of the lost packet
+							}
+						}
+						
+						// Now that the protection buffer has been searched, we can get the number of missing packets using the array length
+						if (pp < maskLength) {
+							if(maskLength-pp == 1) {
+								// If we found exactly one packet missing, we can recover it
+								lostPacket = fec_packet.recoverPacket(protectedPackets, lostSeqNum-baseSeqNum); // (lostSeqNum - baseSeqNum) is the index of the lost packet in the protected packets array
+								videoBuffer.offer(lostPacket); // Add the recovered packet to the video buffer (it should be ordered by sequence number automatically)
+
+								// Update buffer size stats (synchronized)
+								synchronized (videoStats.bufferLock) {
+									videoStats.bufferSize++;
+								}
+								
+								// Remove the FEC group packets from the protection buffer
+								for (int i = 0; i < protectedPackets.length; i++) {
+									if (protectedPackets[i] != null) {
+										protectionBuffer.remove(protectedPackets[i]);
+									}
+								}
+								synchronized (videoStats.protectionLock) {
+									videoStats.fecBufferSize = protectionBuffer.size();
+								}
+								videoStats.recoveredPackets++; // Increment lost packets count
+								
+								// Update stats text (invokeLater to avoid deadlock)
+								/*String statsStr = getStats();
+								SwingUtilities.invokeLater(() -> statsPane.setText(statsStr));*/
+								
+							} else {
+								// If we found more than one packet missing, we cannot recover them
+								System.out.println("Warning: More than one packet lost, FEC cannot recover them. Lost packets: " + (maskLength - pp));
+							}
+						}
+		            }
+	            } catch (InterruptedException ie) {
+	                if (running) {
+	                    System.out.println("[FECListener] Exception caught: " + ie);
+	                }
+	            } catch (Exception e) {
+	                System.out.println("[FECListener] Exception caught: " + e);
+	            }
+	        }
+	    }
+	}
+
+	
 	/**
 	 * videoTimerListener class
 	 * <br>
@@ -594,34 +752,45 @@ public class Client {
 				try {
 					RTPpacket rtp_packet = videoBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
 					if (rtp_packet != null) {
+						
+						// Update buffer size stats (synchronized)
+						synchronized (videoStats.bufferLock) {
+							videoStats.bufferSize = videoBuffer.size();
+						}
+						
 						// get the payload bitstream from the RTPpacket object
 						int payload_length = rtp_packet.getPayloadLength();
 						byte[] payload = new byte[payload_length];
 						payload = rtp_packet.getPayload();
-
-						// Increment the video frame number
-						/*last_video_nb++;
-
-						// [Stats] FPS calculation
-						// -----------------
-						long now = System.currentTimeMillis();
-						if (now - last_fps_update_time >= 1000) {
-							current_fps = (last_video_nb - last_fps_video_nb) / ((now - last_fps_update_time) / 1000.0);
-							last_fps_video_nb = last_video_nb;
-							last_fps_update_time = now;
-						}
-						// -----------------
-						*/
 						
 						// get an Image object from the payload bitstream
 						Toolkit toolkit = Toolkit.getDefaultToolkit();
 						Image image = toolkit.createImage(payload, 0, payload_length);
-
-						// display the image as an ImageIcon object
-						SwingUtilities.invokeLater(() -> {
-							icon = new ImageIcon(image);
-							iconLabel.setIcon(icon);
-						});
+						
+						// Check if current rtp_packet sequence number is lower than the last packet number
+						if (rtp_packet.getSequenceNumber() < videoStats.lastPlayedPacketNb) {
+							// If the packet is older than the last packet, print a warning
+							System.out.println("Warning: Received an old video packet with SeqNum # " + rtp_packet.getSequenceNumber() +
+									" - Last played packet SeqNum # " + videoStats.lastPlayedPacketNb+ ". Skipping frame...");
+							videoStats.latePackets++; // Increment late packet count
+							
+						} else {
+							// Update video-specific stats
+							videoStats.lastPlayedPacketNb = rtp_packet.getSequenceNumber(); // Update last played packet number
+							videoStats.framesSinceUpdate++;
+							// Update FPS calculation
+							long now = System.currentTimeMillis();
+							if (now - videoStats.lastFpsUpdateTime >= 1000) {
+								videoStats.currentFps = videoStats.framesSinceUpdate / ((now - videoStats.lastFpsUpdateTime) / 1000.0);
+								videoStats.framesSinceUpdate = 0;
+								videoStats.lastFpsUpdateTime = now;							
+							}
+							// display the image as an ImageIcon object
+							SwingUtilities.invokeLater(() -> {
+								icon = new ImageIcon(image);
+								iconLabel.setIcon(icon);
+							});
+						}
 					}
 					Thread.sleep(CommonValues.PLAYBACK_FRAME_PERIOD); // Sleep for the frame period
 				} catch (InterruptedException ie) {
@@ -655,14 +824,27 @@ public class Client {
 				try {
 					RTPpacket rtp_packet = audioBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
 					if (rtp_packet != null) {
+						// Update buffer size stats (synchronized)
+						synchronized (audioStats.bufferLock) {
+							audioStats.bufferSize--;
+						}
+						
 						// get the payload bitstream from the RTPpacket object
 						int payload_length = rtp_packet.getPayloadLength();
 						byte[] payload = new byte[payload_length];
 						payload = rtp_packet.getPayload();
 
-						// write the data to the speaker
-						speaker.write(payload, 0, payload_length);
-
+						// Check if current rtp_packet sequence number is lower than the last packet number
+						if (rtp_packet.getSequenceNumber() < audioStats.lastPlayedPacketNb) {
+							// If the packet is older than the last packet, print a warning
+							System.out.println("Warning: Received an old audio packet with SeqNum # " + rtp_packet.getSequenceNumber() +
+									" - Last played packet SeqNum # " + audioStats.lastPlayedPacketNb + ". Skipping frame...");
+							audioStats.latePackets++; // Increment late packet count
+						} else {
+							audioStats.lastPlayedPacketNb = rtp_packet.getSequenceNumber(); // Update last received packet number
+							// write the data to the speaker
+							speaker.write(payload, 0, payload_length);
+						}
 					}
 					Thread.sleep(CommonValues.PLAYBACK_AUDIO_FRAME_PERIOD); // Sleep for the frame period
 				} catch (InterruptedException ie) {
@@ -789,6 +971,13 @@ public class Client {
 			if (audioThread != null && audioThread.isAlive()) {
 				audioThread.interrupt();
 			}
+			if (fecThread != null && fecThread.isAlive()) {
+				fecThread.interrupt();
+			}
+			// Stop stats timer
+			if (statsTimer != null) {
+				statsTimer.cancel(); // Cancel the stats timer
+			}
 			// Close RTP and RTSP sockets
 			if (RTPsocket != null) {
 				RTPsocket.close();
@@ -809,6 +998,12 @@ public class Client {
 			}
 			if (audioBuffer != null) {
 				audioBuffer.clear();
+			}
+			if (fecQueue != null) {
+				fecQueue.clear();
+			}
+			if (protectionBuffer != null) {
+				protectionBuffer.clear();
 			}
 			// Stop and close the speaker
 			if (speaker != null) {

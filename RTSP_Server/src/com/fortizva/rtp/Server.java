@@ -14,6 +14,7 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.LinkedList;
 import java.util.StringTokenizer;
 
 import javax.swing.JFrame;
@@ -22,6 +23,7 @@ import javax.swing.SwingUtilities;
 
 import com.fortizva.media.Codec;
 import com.fortizva.packets.CommonValues;
+import com.fortizva.packets.FECpacket;
 import com.fortizva.packets.RTPpacket;
 
 /**
@@ -38,8 +40,10 @@ public class Server extends JFrame {
 	// ----------------
 	DatagramSocket VideoSocket; // socket to send video frames
 	DatagramSocket AudioSocket; // socket to send audio frames
+	DatagramSocket FecSocket; // socket to send FEC packets
 	DatagramPacket vsenddp; // UDP packet containing the video frames
 	DatagramPacket asenddp; // UDP packet containing the audio frames
+	DatagramPacket fecSendDP; // UDP packet containing the FEC packets
 
 	InetAddress ClientIPAddr; // Client IP address
 	int RTP_dest_port = 0; // destination port for RTP packets (given by the RTSP Client)
@@ -72,6 +76,11 @@ public class Server extends JFrame {
 	int audionb = 0; // audio chunk nb of the audio currently transmitted
 	int audioSkips = 0; // Number of audio skips (non-audio frames)
 	byte[] aBuf; // buffer used to store the chunks to send to the client
+	
+	// FEC variables
+	// ----------------
+	int fecnb = 0; // FEC packet number
+	private LinkedList<RTPpacket> protectedPackets; // List to store RTP packets for FEC
 
 	// Thread handling
 	private volatile boolean running = false; // Flag to control the running state of the threads
@@ -99,10 +108,8 @@ public class Server extends JFrame {
 	static int RTSP_ID = 123456; // ID of the RTSP session
 	int RTSPSeqNb = 0; // Sequence number of RTSP messages within the session
 
+	//public int lost = 0; // Number of lost packets (simulated)
 	final static String CRLF = "\r\n";
-
-	
-	public int lost = 0; // Number of lost packets (simulated)
 	/**
 	 * Constructor of the Server class. Initializes the GUI and prepares the server to
 	 * accept RTSP requests.
@@ -168,6 +175,9 @@ public class Server extends JFrame {
 		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(theServer.RTSPsocket.getOutputStream()));
 		RTSPBufferedWriter = writer;
 
+		// Initialize buffer
+		theServer.protectedPackets = new LinkedList<RTPpacket>();
+		
 		// Wait for the SETUP message from the client
 		int request_type;
 		boolean done = false;
@@ -210,6 +220,7 @@ public class Server extends JFrame {
 				// init RTP sockets
 				theServer.VideoSocket = new DatagramSocket();
 				theServer.AudioSocket = new DatagramSocket();
+				theServer.FecSocket = new DatagramSocket();
 			}
 		}
 
@@ -267,7 +278,7 @@ public class Server extends JFrame {
 	class VideoSender implements Runnable {
 		public void run() {
 			// if the current image nb is less than the length of the video keep going
-			while (running && imagenb < VIDEO_LENGTH) {
+			while (running && imagenb+videoSkips < VIDEO_LENGTH) {
 				synchronized (pauseLock) {
 					while (paused && running) {
 						try {
@@ -296,12 +307,48 @@ public class Server extends JFrame {
 						 lost++;
 						 System.out.println("DEBUG: Video packet lost! Total lost packets: " + lost);
 					 } else*/
-					VideoSocket.send(vsenddp);
 					
+					// Add a condition with a 50% chance to simulate a single packet loss inside the same FEC group
+					/*if ((Math.random() * 100d) < 50 && protectedPackets.size() == 2) {
+						// Simulate packet loss by not sending the video packet
+						System.out.println("DEBUG: Simulated video packet loss for FEC group. Packet number: " + video_packet.getSequenceNumber());
+
+					} else*/
+					VideoSocket.send(vsenddp);
 					// print the header bitstream
 					if (verbose)
 						video_packet.printHeader();
-					// update GUI
+					
+					// FEC Packet sending
+					// Add the current video packet to the protected packets list
+					protectedPackets.add(video_packet);
+					// Send FEC packet when packets list is full or if the video length is reached
+					if (protectedPackets.size() >= CommonValues.FEC_FREQUENCY || imagenb+videoSkips == VIDEO_LENGTH && protectedPackets.size() > 0) {	
+						// Create FEC packet
+						FECpacket fecPacket = new FECpacket(protectedPackets.toArray(RTPpacket[]::new));
+						RTPpacket fecRtpPacket = new RTPpacket(CommonValues.FEC_PTYPE, fecnb,
+								(int) (System.currentTimeMillis() % Integer.MAX_VALUE), fecPacket.getFecPacket(),
+								fecPacket.getFecPacketSize());
+						
+						// Send FEC packet
+						byte[] fec_bits = new byte[fecRtpPacket.getSize()];
+						fec_bits = fecRtpPacket.getPacket();
+						fecSendDP = new DatagramPacket(fec_bits, fec_bits.length, ClientIPAddr, RTP_dest_port);
+						try {
+							FecSocket.send(fecSendDP);
+						} catch (IOException e) {
+							System.out.println("[VideoSender] Error sending FEC packet: " + e.getStackTrace());
+						} finally {
+							fecnb++; // Increment FEC packet number						
+							// Clear the protected packets list after sending FEC
+							protectedPackets.clear();
+						}
+					}
+					
+					
+					
+					// Update GUI
+					// ------------------
 					SwingUtilities.invokeLater(new UpdateLabel());
 					// Sleep for the video frame period
 					Thread.sleep(CommonValues.STREAMING_FRAME_PERIOD);
@@ -485,6 +532,9 @@ public class Server extends JFrame {
 			}
 			if (AudioSocket != null) {
 				AudioSocket.close();
+			}
+			if (FecSocket != null) {
+				FecSocket.close();
 			}
 			// Close input and output stream filters
 			if (RTSPBufferedReader != null) {
