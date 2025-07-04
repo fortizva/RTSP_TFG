@@ -244,6 +244,9 @@ public class Client {
 	    "    <div style=\"margin-left: 10px; width: 100%\">\n";
 	s += String.format("      <b>Received bytes:</b> %d<br>\n", audioStats.receivedBytes);
 	s += String.format("      <b>Received packets:</b> %d<br>\n", audioStats.receivedPackets);
+	synchronized(audioStats.bufferLock) {
+		audioStats.bufferSize = (audioBuffer==null) ? 0 : audioBuffer.size(); // Get FEC buffer size
+	}
 	s += String.format("	  <b>Buffer size:</b> %d packets<br>\n", audioStats.bufferSize);
 	s += String.format("      <b>Initial packet #:</b> %d<br>\n", audioStats.initialPacketNb);
 	s += String.format("      <b>Last packet #:</b> %d<br>\n", audioStats.lastReceivedPacketNb);
@@ -259,6 +262,9 @@ public class Client {
 	     "    <div style=\"margin-left: 10px; width: 100%;\">\n";
 	s += String.format("      <b>Received bytes:</b> %d<br>\n", videoStats.receivedBytes);
 	s += String.format("      <b>Received packets:</b> %d<br>\n", videoStats.receivedPackets);
+	synchronized(videoStats.bufferLock) {
+		videoStats.bufferSize = (videoBuffer==null) ? 0 : videoBuffer.size(); // Get FEC buffer size
+	}
 	s += String.format("	  <b>Buffer size:</b> %d packets<br>\n", videoStats.bufferSize);
 	s += String.format("      <b>Initial packet #:</b> %d<br>\n", videoStats.initialPacketNb);
 	s += String.format("      <b>Last packet #:</b> %d<br>\n", videoStats.lastReceivedPacketNb);
@@ -270,9 +276,16 @@ public class Client {
 	s += String.format("      <b>Current FPS:</b> %.2f<br>\n", videoStats.currentFps);
 	s += "      <b>Frames since update #:</b> " + videoStats.framesSinceUpdate + "<br>\n";
 	s += "      <b>Last FPS update time:</b> " + videoStats.lastFpsUpdateTime + "<br>\n";
-	s += "      <b>FEC buffer size:</b> " + videoStats.fecBufferSize + "<br>\n";
-	s += "      <b>Recovered packets:</b> " + videoStats.recoveredPackets + "<br>\n";
-	s += "      <b>Late packets:</b> " + videoStats.latePackets + "<br>\n";
+	synchronized(videoStats.fecLock) {
+		videoStats.fecBufferSize = (fecQueue==null) ? 0 : fecQueue.size(); // Get FEC buffer size
+	}
+	s += "      <b>FEC buffer size:</b> " + videoStats.fecBufferSize + " packets<br>\n";
+	synchronized (videoStats.protectionLock) {
+		videoStats.protectionBufferSize = (protectionBuffer==null) ? 0 : protectionBuffer.size(); // Get FEC protection buffer size
+	}
+	s += String.format("      <b>Protection buffer size:</b> %d packets<br>\n", videoStats.protectionBufferSize);
+	s += String.format("      <b>Recovered packets:</b> %d<br>\n", videoStats.recoveredPackets);
+	s += String.format("      <b>Late packets:</b> %d<br>\n", videoStats.latePackets);
 	s += "    </div>\n" +
 	     "  </td></tr></table>\n" +
 	     "</body>\n" +
@@ -572,10 +585,6 @@ public class Client {
 							// Update audio stats
 							// -----------------------------
 							updateStats(audioStats, rtp_packet);
-							// Update buffer size stats (synchronized)
-							synchronized (audioStats.bufferLock) {
-								audioStats.bufferSize++;
-							}
 							
 						} else if (rtp_packet.getPayloadType() == CommonValues.MJPEG_TYPE) {
 							videoBuffer.offer(rtp_packet);
@@ -585,13 +594,6 @@ public class Client {
 							// Update video stats
 							// -----------------------------
 							updateStats(videoStats, rtp_packet);
-							// Update buffer size stats (synchronized)
-							synchronized (videoStats.bufferLock) {
-								videoStats.bufferSize++;
-							}
-							synchronized (videoStats.protectionLock) {
-								videoStats.protectionBufferSize++;
-							}
 
 							
 						} else if (rtp_packet.getPayloadType() == CommonValues.FEC_PTYPE) {
@@ -603,10 +605,6 @@ public class Client {
 							
 							// Add the FEC packet to the queue for processing
 							fecQueue.offer(fec_packet);
-							// Update FEC buffer size stats
-							synchronized (videoStats.fecLock) {
-								videoStats.fecBufferSize++;
-							}
 							
 						} else {
 							System.out.println("Unknown payload type: " + rtp_packet.getPayloadType() + " - SequenceNumber: "
@@ -645,11 +643,6 @@ public class Client {
 			            if (verbose) {
 			                System.out.println("[FECListener] Processing FEC packet with BaseSeqNum # " + fec_packet.getBaseSequenceNumber());
 			            }
-			            
-			            // Update buffer size stats (synchronized)
-						synchronized (videoStats.fecLock) {
-							videoStats.fecBufferSize--;
-						}
 			            
 			            // Look for missing packets in the protection buffer using FEC packet's base sequence number and mask
 						int baseSeqNum = fec_packet.getBaseSequenceNumber(); // Initial sequence number of the protected packets
@@ -690,11 +683,6 @@ public class Client {
 								// If we found exactly one packet missing, we can recover it
 								lostPacket = fec_packet.recoverPacket(protectedPackets, lostSeqNum-baseSeqNum); // (lostSeqNum - baseSeqNum) is the index of the lost packet in the protected packets array
 								videoBuffer.offer(lostPacket); // Add the recovered packet to the video buffer (it should be ordered by sequence number automatically)
-
-								// Update buffer size stats (synchronized)
-								synchronized (videoStats.bufferLock) {
-									videoStats.bufferSize++;
-								}
 								
 								// Remove the FEC group packets from the protection buffer
 								for (int i = 0; i < protectedPackets.length; i++) {
@@ -702,9 +690,7 @@ public class Client {
 										protectionBuffer.remove(protectedPackets[i]);
 									}
 								}
-								synchronized (videoStats.protectionLock) {
-									videoStats.fecBufferSize = protectionBuffer.size();
-								}
+								
 								videoStats.recoveredPackets++; // Increment lost packets count
 								
 								// Update stats text (invokeLater to avoid deadlock)
@@ -823,12 +809,7 @@ public class Client {
 					break; // Exit if the running flag is false
 				try {
 					RTPpacket rtp_packet = audioBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
-					if (rtp_packet != null) {
-						// Update buffer size stats (synchronized)
-						synchronized (audioStats.bufferLock) {
-							audioStats.bufferSize--;
-						}
-						
+					if (rtp_packet != null) {						
 						// get the payload bitstream from the RTPpacket object
 						int payload_length = rtp_packet.getPayloadLength();
 						byte[] payload = new byte[payload_length];
