@@ -3,6 +3,7 @@ package com.fortizva.rtp;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.GridLayout;
 import java.awt.Image;
@@ -36,6 +37,7 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
 import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
+import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JEditorPane;
@@ -64,6 +66,7 @@ class BufferBar extends JPanel {
 	 */
     private TreeMap<Integer, FrameStatus> bufferStates;
     private static final int NUM_FRAMES_DISPLAYED = 60;
+    private final Object bufferLock = new Object(); // Lock for buffer states
 
     public enum FrameStatus {
         RECEIVED, LOST, LATE, RECOVERED, EMPTY
@@ -74,7 +77,9 @@ class BufferBar extends JPanel {
 	 * @param states Initial buffer states.
 	 */
     public void setBufferStates(TreeMap<Integer, FrameStatus> states) {
-        this.bufferStates = states;
+    	synchronized (bufferLock) {
+    		this.bufferStates = states;
+        }
         repaint();
     }
     
@@ -83,14 +88,18 @@ class BufferBar extends JPanel {
      * @return TreeMap of frame numbers and their statuses.
      */
     public TreeMap<Integer, FrameStatus> getBufferStates() {
-		return bufferStates;
+    	synchronized (bufferLock) {
+    		return bufferStates;
+		}
 	}
     
     /**
 	 * Clears the buffer states.
 	 */
     public void clearBufferStates() {
-		this.bufferStates = null;
+    	synchronized (bufferLock) {
+    		this.bufferStates = null;
+    	}
 	}
     
     /**
@@ -99,13 +108,15 @@ class BufferBar extends JPanel {
      * @param state State to set for the frame.
      */
     public void putBufferState(int frame, FrameStatus state) {
-		if (bufferStates == null) {
-			bufferStates = new TreeMap<>();
-		}
-        if (bufferStates.size() >= NUM_FRAMES_DISPLAYED) {
-            bufferStates.pollFirstEntry(); // Remove the oldest entry if we exceed the limit
-        }
-        bufferStates.put(frame, state);
+    	synchronized(bufferLock) {
+			if (bufferStates == null) {
+				bufferStates = new TreeMap<>();
+			}
+	        if (bufferStates.size() >= NUM_FRAMES_DISPLAYED) {
+	            bufferStates.pollFirstEntry(); // Remove the oldest entry if we exceed the limit
+	        }
+	        bufferStates.put(frame, state);
+    	}
     }
     
     /**
@@ -114,7 +125,9 @@ class BufferBar extends JPanel {
 	 * @return The status of the frame, or EMPTY if not set.
 	 */
     public FrameStatus getFrameStatus(int frame) {
-    	return (bufferStates!=null) ? bufferStates.getOrDefault(frame, FrameStatus.EMPTY) : FrameStatus.EMPTY;
+    	synchronized (bufferLock) {
+    		return (bufferStates!=null) ? bufferStates.getOrDefault(frame, FrameStatus.EMPTY) : FrameStatus.EMPTY;
+    	}
     }
     
     /** 
@@ -124,26 +137,31 @@ class BufferBar extends JPanel {
      * @param status Status to set for the frames between startFrame (inclusive) and endFrame (exclusive).
      */
     public void fillBetweenFrames(int startFrame, int endFrame, FrameStatus status) {
-		if (bufferStates == null) {
-			bufferStates = new TreeMap<>();
-		}
-		for (int i = startFrame; i < endFrame; i++) {
-			bufferStates.put(i, status);
+		synchronized (bufferLock) {
+	    	if (bufferStates == null) {
+				bufferStates = new TreeMap<>();
+			}
+			for (int i = startFrame; i < endFrame; i++) {
+				bufferStates.put(i, status);
+			}
 		}
 	}
 
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        if(bufferStates == null || bufferStates.isEmpty()) {
-			g.setColor(Color.GRAY);
-			g.fillRect(0, 0, getWidth(), getHeight());
-			return; // No states to display
-		}
+        List<FrameStatus> states;
+        synchronized (bufferLock) {
+	        if(bufferStates == null || bufferStates.isEmpty()) {
+				g.setColor(Color.GRAY);
+				g.fillRect(0, 0, getWidth(), getHeight());
+				return; // No states to display
+			}
+	        states = new ArrayList<>(bufferStates.values());
+        }
         int width = getWidth() / NUM_FRAMES_DISPLAYED;
         int totalWidth = width * NUM_FRAMES_DISPLAYED;
         int xOffset = (getWidth() - totalWidth) / 2; // Center the bar
-        List<FrameStatus> states = new ArrayList<>(bufferStates.values());
         for (int i = 0; i < NUM_FRAMES_DISPLAYED; i++) {
             FrameStatus status = (i < states.size()) ? states.get(i) : FrameStatus.EMPTY;
             switch (status) {
@@ -158,6 +176,25 @@ class BufferBar extends JPanel {
             g.setColor(Color.BLACK);
             g.drawRect(x, 0, width, getHeight());
         }
+    }
+}
+
+/**
+ * ColorIcon class
+ * <br>
+ * Custom Icon implementation to display a colored square icon.
+ */
+class ColorIcon implements Icon {
+    private final Color color;
+    private final int size;
+    public ColorIcon(Color color, int size) { this.color = color; this.size = size; }
+    public int getIconWidth() { return size; }
+    public int getIconHeight() { return size; }
+    public void paintIcon(java.awt.Component c, java.awt.Graphics g, int x, int y) {
+        g.setColor(color);
+        g.fillRect(x, y, size, size);
+        g.setColor(Color.BLACK);
+        g.drawRect(x, y, size, size);
     }
 }
 
@@ -298,8 +335,6 @@ public class Client {
 		statsPane.setSize(new Dimension(600, 370)); // width, height
 		statsPanel.setPreferredSize(new Dimension(600, 370));
 		stats.setSize(new Dimension(620, 370)); // width, height
-		
-
 		stats.setResizable(false);
 		stats.setLocation(400, 0);
 		stats.setVisible(true);
@@ -307,8 +342,34 @@ public class Client {
 		// Buffer bar layout
 		bufferBarFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 		bufferBarFrame.getContentPane().add(videoBufferBar, BorderLayout.CENTER);
-		videoBufferBar.setPreferredSize(new Dimension(380, 40));
+		videoBufferBar.setPreferredSize(new Dimension(380, 60));
+		// Add a legend panel to the buffer bar frame
+		JPanel legendPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 2));
+		legendPanel.setPreferredSize(new Dimension(380, 30));
+		
+		JLabel receivedLabel = new JLabel("RECEIVED", new ColorIcon(Color.GREEN, 12), JLabel.LEFT);
+		receivedLabel.setToolTipText("Correctly received packet");
+		legendPanel.add(receivedLabel);
+		JLabel lostLabel = new JLabel("LOST", new ColorIcon(Color.RED, 12), JLabel.LEFT);
+		lostLabel.setToolTipText("Packet not received");
+		legendPanel.add(lostLabel);
+		JLabel recoveredLabel = new JLabel("RECOVERED", new ColorIcon(Color.YELLOW, 12), JLabel.LEFT);
+		recoveredLabel.setToolTipText("Packet recovered by FEC");
+		legendPanel.add(recoveredLabel);
+		JLabel lateLabel = new JLabel("LATE", new ColorIcon(Color.ORANGE, 12), JLabel.LEFT);
+		lateLabel.setToolTipText("Packet received/recovered too late");
+		legendPanel.add(lateLabel);
+		JLabel emptyLabel = new JLabel("EMPTY", new ColorIcon(Color.GRAY, 12), JLabel.LEFT);
+		emptyLabel.setToolTipText("No data received for this frame");
+		legendPanel.add(emptyLabel);
+
+		
+		bufferBarFrame.getContentPane().removeAll();
+		bufferBarFrame.getContentPane().setLayout(new BorderLayout());
+		bufferBarFrame.getContentPane().add(videoBufferBar, BorderLayout.CENTER);
+		bufferBarFrame.getContentPane().add(legendPanel, BorderLayout.SOUTH);
 		bufferBarFrame.pack();
+		
 		bufferBarFrame.setResizable(false);
 		// Position below the main player window
 		bufferBarFrame.setLocation(f.getX(), f.getY() + f.getHeight() + 10);
@@ -349,10 +410,9 @@ public class Client {
 		        SwingUtilities.invokeLater(() -> statsPane.setText(html)); // Fast GUI update
 		        videoBufferBar.repaint(); // Repaint the buffer bar
 		    }
-		}, 0, 200); // every 500ms
-			
+		}, 0, 200); // every 500ms			
 	}
-
+	
 	// ------------------------------------
 	// Soundcard initialization
 	// ------------------------------------
@@ -669,22 +729,7 @@ public class Client {
 				synchronized (pauseLock) {
 					pauseLock.notifyAll(); // Notify any waiting threads to stop
 				}
-				// Stop the video, audio and RTP threads
-				if (videoThread != null && videoThread.isAlive()) {
-					videoThread.interrupt(); // Interrupt the video thread
-				}
-				if (audioThread != null && audioThread.isAlive()) {
-					audioThread.interrupt(); // Interrupt the audio thread
-				}
-				if (fecThread != null && fecThread.isAlive()) {
-					fecThread.interrupt(); // Interrupt the FEC handler thread
-				}
-				// Stop stats timer
-				if (statsTimer != null) {
-					statsTimer.cancel(); // Cancel the stats timer
-				}
-				// RTPSocketListener should stop by itself on state change
-
+				// Stop the threads
 				// exit
 				cleanExit();
 			}
@@ -1108,10 +1153,10 @@ public class Client {
 				statsTimer.cancel(); // Cancel the stats timer
 			}
 			// Close RTP and RTSP sockets
-			if (RTPsocket != null) {
+			if (RTPsocket != null && !RTPsocket.isClosed()) {
 				RTPsocket.close();
 			}
-			if (RTSPsocket != null) {
+			if (RTSPsocket != null && !RTSPsocket.isClosed()) {
 				RTSPsocket.close();
 			}
 			// Close RTSP input and output streams

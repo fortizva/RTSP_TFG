@@ -131,7 +131,7 @@ public class Server extends JFrame {
 		});
 
 		// GUI:
-		setBounds(0, 375, 390, 60);
+		setBounds(0, 575, 390, 60);
 		setPreferredSize(new Dimension(390, 60));
 		// set the label
 		label = new JLabel("Send frame #        ", JLabel.LEFT);
