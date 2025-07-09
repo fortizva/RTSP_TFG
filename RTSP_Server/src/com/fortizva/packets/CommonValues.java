@@ -25,7 +25,7 @@ public class CommonValues {
 	// Timers
 	public static final int STREAMING_FRAME_PERIOD = 30; // Frame period of the video to stream, in ms
 	public static final int PLAYBACK_FRAME_PERIOD = 40; // Frame period of the video to playback, in ms
-	public static final int STREAMING_AUDIO_FRAME_PERIOD = 40; // Frame period of the audio to stream, in ms (See Codec.java for more details)
+	public static final int STREAMING_AUDIO_FRAME_PERIOD = 30; // Frame period of the audio to stream, in ms (See Codec.java for more details)
 	public static final int PLAYBACK_AUDIO_FRAME_PERIOD = 40; //Frame period of the audio to stream, in ms (See Codec.java for more details)
 	
 	// Types
@@ -34,4 +34,5 @@ public class CommonValues {
 
 	// Misc
 	public static final String CRLF = "\r\n";
+	
 }

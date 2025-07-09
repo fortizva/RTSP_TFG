@@ -1,7 +1,9 @@
 package com.fortizva.rtp;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Graphics;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Toolkit;
@@ -20,9 +22,12 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.StringTokenizer;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.TreeMap;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -44,6 +49,119 @@ import com.fortizva.packets.FECpacket;
 import com.fortizva.packets.RTPpacket;
 
 /**
+ * BufferBar class
+ * <br>
+ * Custom JPanel to display the buffer states of received RTP packets.
+ * Each frame in the buffer is represented by a colored rectangle.
+ */
+class BufferBar extends JPanel {
+	/**
+	 * Serial version UID for serialization. (Just to avoid warnings)
+	 */
+	private static final long serialVersionUID = 1L;
+	/**
+	 * TreeMap to store the states of the buffer frames. Ordered and indexed by frame number.
+	 */
+    private TreeMap<Integer, FrameStatus> bufferStates;
+    private static final int NUM_FRAMES_DISPLAYED = 60;
+
+    public enum FrameStatus {
+        RECEIVED, LOST, LATE, RECOVERED, EMPTY
+    }
+    
+    /**
+	 * Initializes the panel with a preferred size. Repaints the panel.
+	 * @param states Initial buffer states.
+	 */
+    public void setBufferStates(TreeMap<Integer, FrameStatus> states) {
+        this.bufferStates = states;
+        repaint();
+    }
+    
+    /**
+     * Returns the current buffer states.
+     * @return TreeMap of frame numbers and their statuses.
+     */
+    public TreeMap<Integer, FrameStatus> getBufferStates() {
+		return bufferStates;
+	}
+    
+    /**
+	 * Clears the buffer states.
+	 */
+    public void clearBufferStates() {
+		this.bufferStates = null;
+	}
+    
+    /**
+     * Adds or updates the state of a specific frame in the buffer.
+     * @param frame Frame number to update.
+     * @param state State to set for the frame.
+     */
+    public void putBufferState(int frame, FrameStatus state) {
+		if (bufferStates == null) {
+			bufferStates = new TreeMap<>();
+		}
+        if (bufferStates.size() >= NUM_FRAMES_DISPLAYED) {
+            bufferStates.pollFirstEntry(); // Remove the oldest entry if we exceed the limit
+        }
+        bufferStates.put(frame, state);
+    }
+    
+    /**
+	 * Gets the status of a specific frame in the buffer.
+	 * @param frame Frame number to check.
+	 * @return The status of the frame, or EMPTY if not set.
+	 */
+    public FrameStatus getFrameStatus(int frame) {
+    	return (bufferStates!=null) ? bufferStates.getOrDefault(frame, FrameStatus.EMPTY) : FrameStatus.EMPTY;
+    }
+    
+    /** 
+     * Fills the buffer states between two frames with a specific status.
+     * @param startFrame Start frame number. (inclusive)
+     * @param endFrame End frame number. (exclusive)
+     * @param status Status to set for the frames between startFrame (inclusive) and endFrame (exclusive).
+     */
+    public void fillBetweenFrames(int startFrame, int endFrame, FrameStatus status) {
+		if (bufferStates == null) {
+			bufferStates = new TreeMap<>();
+		}
+		for (int i = startFrame; i < endFrame; i++) {
+			bufferStates.put(i, status);
+		}
+	}
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        if(bufferStates == null || bufferStates.isEmpty()) {
+			g.setColor(Color.GRAY);
+			g.fillRect(0, 0, getWidth(), getHeight());
+			return; // No states to display
+		}
+        int width = getWidth() / NUM_FRAMES_DISPLAYED;
+        int totalWidth = width * NUM_FRAMES_DISPLAYED;
+        int xOffset = (getWidth() - totalWidth) / 2; // Center the bar
+        List<FrameStatus> states = new ArrayList<>(bufferStates.values());
+        for (int i = 0; i < NUM_FRAMES_DISPLAYED; i++) {
+            FrameStatus status = (i < states.size()) ? states.get(i) : FrameStatus.EMPTY;
+            switch (status) {
+                case RECEIVED: g.setColor(Color.GREEN); break;
+                case LOST: g.setColor(Color.RED); break;
+                case RECOVERED: g.setColor(Color.YELLOW); break;
+                case LATE: g.setColor(Color.ORANGE); break;
+                case EMPTY: g.setColor(Color.GRAY); break;
+            }
+            int x = xOffset + i * width;
+            g.fillRect(x, 0, width, getHeight());
+            g.setColor(Color.BLACK);
+            g.drawRect(x, 0, width, getHeight());
+        }
+    }
+}
+
+/**
  * Usage: java Client [Server hostname] [Server RTSP listening port] [Video file requested]
  */
 public class Client {
@@ -63,7 +181,10 @@ public class Client {
 	JFrame stats = new JFrame("Stats");
 	JPanel statsPanel = new JPanel();
 	JEditorPane statsPane = new JEditorPane();
-
+	
+	JFrame bufferBarFrame = new JFrame("Video Buffer");
+	BufferBar videoBufferBar = new BufferBar();
+	
 	// Stream statistics
 	// ---------------
 	StreamStats videoStats = new StreamStats();
@@ -183,6 +304,23 @@ public class Client {
 		stats.setLocation(400, 0);
 		stats.setVisible(true);
 		
+		// Buffer bar layout
+		bufferBarFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+		bufferBarFrame.getContentPane().add(videoBufferBar, BorderLayout.CENTER);
+		videoBufferBar.setPreferredSize(new Dimension(380, 40));
+		bufferBarFrame.pack();
+		bufferBarFrame.setResizable(false);
+		// Position below the main player window
+		bufferBarFrame.setLocation(f.getX(), f.getY() + f.getHeight() + 10);
+		bufferBarFrame.setVisible(true);
+		
+		// Update bufferBarFrame position if main window moves
+		f.addComponentListener(new java.awt.event.ComponentAdapter() {
+		    public void componentMoved(java.awt.event.ComponentEvent evt) {
+		        bufferBarFrame.setLocation(f.getX(), f.getY() + f.getHeight() + 10);
+		    }
+		});
+		
 		// allocate enough memory for the buffer used to receive data from the server
 		buf = new byte[15000];
 		videoBuffer = new PriorityBlockingQueue<RTPpacket>(1000);
@@ -209,8 +347,9 @@ public class Client {
 		    public void run() {
 		        String html = getStats(); // Run outside EDT!
 		        SwingUtilities.invokeLater(() -> statsPane.setText(html)); // Fast GUI update
+		        videoBufferBar.repaint(); // Repaint the buffer bar
 		    }
-		}, 0, 500); // every 500ms
+		}, 0, 200); // every 500ms
 			
 	}
 
@@ -301,9 +440,19 @@ public class Client {
 			stats.initialPacketNb = rtp_packet.getSequenceNumber();
 		}
 		
-		// Update packet loss taking into account initial and last packet numbers
-		if (rtp_packet.getSequenceNumber() > stats.lastReceivedPacketNb + 1) {
-			stats.lostPackets += (rtp_packet.getSequenceNumber() - stats.lastReceivedPacketNb - 1);
+		// Update packet loss taking into account initial and last packet numbers.
+		if (rtp_packet.getSequenceNumber() > stats.lastReceivedPacketNb + 1 && stats.initialPacketNb != rtp_packet.getSequenceNumber()) {
+			int calculatedLostPackets = rtp_packet.getSequenceNumber() - stats.lastReceivedPacketNb - 1;
+			stats.lostPackets += calculatedLostPackets;
+			if(calculatedLostPackets > 0) {
+				if (verbose) {
+					System.out.println("Lost " + calculatedLostPackets + " packets between " + stats.lastReceivedPacketNb
+							+ " and " + rtp_packet.getSequenceNumber());
+				}
+				// Update buffer state for lost packets
+				videoBufferBar.fillBetweenFrames(stats.lastReceivedPacketNb + 1, rtp_packet.getSequenceNumber() - 1,
+						BufferBar.FrameStatus.LOST);
+			}
 			stats.packetLoss = (stats.lostPackets * 100) / (rtp_packet.getSequenceNumber() - stats.initialPacketNb + 1);
 		}
 		
@@ -319,12 +468,6 @@ public class Client {
 		stats.receivedBytes += rtp_packet.getSize();
 		stats.receivedPackets++;
 		stats.lastReceivedPacketNb = rtp_packet.getSequenceNumber();
-	}
-
-	class UpdateStats implements Runnable {
-		public void run() {
-			statsPane.setText(getStats());
-		}
 	}
 
 	/**
@@ -594,7 +737,8 @@ public class Client {
 							// Update video stats
 							// -----------------------------
 							updateStats(videoStats, rtp_packet);
-
+							videoBufferBar.putBufferState(rtp_packet.getSequenceNumber(), BufferBar.FrameStatus.RECEIVED);
+							
 							
 						} else if (rtp_packet.getPayloadType() == CommonValues.FEC_PTYPE) {
 							// FEC packet handling
@@ -684,6 +828,9 @@ public class Client {
 								lostPacket = fec_packet.recoverPacket(protectedPackets, lostSeqNum-baseSeqNum); // (lostSeqNum - baseSeqNum) is the index of the lost packet in the protected packets array
 								videoBuffer.offer(lostPacket); // Add the recovered packet to the video buffer (it should be ordered by sequence number automatically)
 								
+								// Update video buffer state
+								videoBufferBar.putBufferState(lostPacket.getSequenceNumber(), BufferBar.FrameStatus.RECOVERED);
+								
 								// Remove the FEC group packets from the protection buffer
 								for (int i = 0; i < protectedPackets.length; i++) {
 									if (protectedPackets[i] != null) {
@@ -759,7 +906,8 @@ public class Client {
 							System.out.println("Warning: Received an old video packet with SeqNum # " + rtp_packet.getSequenceNumber() +
 									" - Last played packet SeqNum # " + videoStats.lastPlayedPacketNb+ ". Skipping frame...");
 							videoStats.latePackets++; // Increment late packet count
-							
+							// Update buffer state for late packets
+							videoBufferBar.putBufferState(rtp_packet.getSequenceNumber(), BufferBar.FrameStatus.LATE);
 						} else {
 							// Update video-specific stats
 							videoStats.lastPlayedPacketNb = rtp_packet.getSequenceNumber(); // Update last played packet number
