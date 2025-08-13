@@ -1,7 +1,9 @@
 package com.fortizva.rtp;
 
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.BufferedReader;
@@ -15,10 +17,18 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.LinkedList;
+import java.util.Queue;
 import java.util.StringTokenizer;
 
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JCheckBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JSpinner;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 
 import com.fortizva.media.Codec;
@@ -33,9 +43,14 @@ public class Server extends JFrame {
 
 	private static final long serialVersionUID = 1L;
 
-	// Verbose mode
+	// Arguments
+	// ----------------
 	boolean verbose = false;
-
+	final static int DEFAULT_PORT = 1025; // Default RTSP port
+	final static int DEFAULT_FEC_GROUP_SIZE = 5; // Default FEC group size
+	final static int DEFAULT_PACKET_LOSS = 5; // Default simulated packet loss percentage
+	
+	
 	// RTP variables:
 	// ----------------
 	DatagramSocket VideoSocket; // socket to send video frames
@@ -50,13 +65,16 @@ public class Server extends JFrame {
 
 	// GUI:
 	// ----------------
-	JLabel label;
-
-	class UpdateLabel implements Runnable {
-		public void run() {
-			label.setText("Send frame #" + imagenb + "\nSend audio chunk #" + audionb);
-		}
-	}
+	JPanel mainPanel;
+	JPanel statsPanel;
+	JPanel settingsPanel;
+	private JLabel lblLastFrame;
+	private JLabel lblLastChunk;
+	private JLabel lblSimLost;
+	private JCheckBox chkFEC;
+	private JCheckBox chkSimLoss;
+	private JSpinner spnFECGroup;
+	private JSpinner spnPacketLoss;
 
 	// Video & audio variables
 	// ----------------
@@ -108,7 +126,8 @@ public class Server extends JFrame {
 	static int RTSP_ID = 123456; // ID of the RTSP session
 	int RTSPSeqNb = 0; // Sequence number of RTSP messages within the session
 
-	//public int lost = 0; // Number of lost packets (simulated)
+	public int simLostPackets = 0; // Number of lost packets (simulated)
+	
 	final static String CRLF = "\r\n";
 	/**
 	 * Constructor of the Server class. Initializes the GUI and prepares the server to
@@ -131,11 +150,91 @@ public class Server extends JFrame {
 		});
 
 		// GUI:
-		setBounds(0, 575, 390, 60);
-		setPreferredSize(new Dimension(390, 60));
-		// set the label
-		label = new JLabel("Send frame #        ", JLabel.LEFT);
-		getContentPane().add(label, BorderLayout.CENTER);
+		setPreferredSize(new Dimension(500, 200));
+		setLocation(0, 575);
+		setResizable(false);
+
+		mainPanel = new JPanel(new BorderLayout());
+
+		// Stats Panel (Left side)
+		statsPanel = new JPanel();
+		statsPanel.setLayout(new BoxLayout(statsPanel, BoxLayout.Y_AXIS));
+		statsPanel.setBorder(BorderFactory.createCompoundBorder(
+		    BorderFactory.createTitledBorder("Stats:"),
+		    BorderFactory.createEmptyBorder(10, 10, 10, 10)
+		));
+		statsPanel.setPreferredSize(new Dimension(225, 200)); // Fixed width
+		statsPanel.setMaximumSize(new Dimension(225, Integer.MAX_VALUE)); // Allows vertical expansion only
+
+		lblLastFrame = new JLabel("Last video frame: #0");
+		lblLastChunk = new JLabel("Last audio chunk: #0");
+		lblSimLost = new JLabel("Simulated lost packets: 0");
+		lblSimLost.setVisible(false);
+
+		statsPanel.add(lblLastFrame);
+		statsPanel.add(Box.createVerticalStrut(5));
+		statsPanel.add(lblLastChunk);
+		statsPanel.add(Box.createVerticalStrut(5));
+		statsPanel.add(lblSimLost);
+
+		// Settings Panel (Right side)
+		settingsPanel = new JPanel();
+		settingsPanel.setLayout(new BoxLayout(settingsPanel, BoxLayout.Y_AXIS));
+		settingsPanel.setBorder(BorderFactory.createCompoundBorder(
+		    BorderFactory.createTitledBorder("Settings:"),
+		    BorderFactory.createEmptyBorder(10, 10, 10, 10)
+		));
+		settingsPanel.setPreferredSize(new Dimension(275, 200)); // Fixed width
+		settingsPanel.setMaximumSize(new Dimension(275, Integer.MAX_VALUE)); // Allows vertical expansion only
+
+		chkFEC = new JCheckBox("Forward Error Correction");
+		chkFEC.setEnabled(true);
+		chkFEC.setSelected(true);
+
+		JPanel FECPanel = new JPanel();
+		FECPanel.setLayout(new BoxLayout(FECPanel, BoxLayout.X_AXIS));
+		FECPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		spnFECGroup = new JSpinner(new SpinnerNumberModel(5, 2, 16, 1));
+		JLabel lblFECGroup = new JLabel("FEC Group Size (max 16):");
+		lblFECGroup.setFont(lblFECGroup.getFont().deriveFont(Font.ITALIC, 12f));
+		spnFECGroup.setEnabled(chkFEC.isSelected());
+		spnFECGroup.setMaximumSize(new Dimension(60, 20));
+		chkFEC.addActionListener(e -> spnFECGroup.setEnabled(chkFEC.isSelected()));
+
+		FECPanel.add(lblFECGroup);
+		FECPanel.add(spnFECGroup);
+
+		JPanel simLossPanel = new JPanel();
+		simLossPanel.setLayout(new BoxLayout(simLossPanel, BoxLayout.X_AXIS));
+		simLossPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		chkSimLoss = new JCheckBox("DEBUG: Simulate Video Packet Loss");
+		spnPacketLoss = new JSpinner(new SpinnerNumberModel(5, 1, 100, 1));
+		JLabel lblPacketLoss = new JLabel("Packet loss (%):");
+		lblPacketLoss.setFont(lblPacketLoss.getFont().deriveFont(Font.PLAIN, 12f));
+		spnPacketLoss.setEnabled(chkSimLoss.isSelected());
+		spnPacketLoss.setMaximumSize(new Dimension(60, 20));
+
+		chkSimLoss.addActionListener(e -> {
+		    spnPacketLoss.setEnabled(chkSimLoss.isSelected());
+		    lblSimLost.setVisible(chkSimLoss.isSelected());
+		});
+
+		simLossPanel.add(lblPacketLoss);
+		simLossPanel.add(spnPacketLoss);
+
+		settingsPanel.add(chkFEC);
+		settingsPanel.add(FECPanel);
+		settingsPanel.add(Box.createVerticalStrut(10));
+		settingsPanel.add(chkSimLoss);
+		settingsPanel.add(simLossPanel);
+
+		// Add panels to the main panel
+		mainPanel.add(statsPanel, BorderLayout.CENTER);
+		mainPanel.add(settingsPanel, BorderLayout.EAST);
+
+		add(mainPanel);
+		pack();
+
 	}
 
 	/**
@@ -147,17 +246,96 @@ public class Server extends JFrame {
 		// create a Server object
 		Server theServer = new Server();
 
-		// check the number of arguments// check for verbose
-		if (argv.length >= 2 && argv[1].equals("-v")) {
+		
+		/*if (argv.length >= 2 && argv[1].equals("-v")) {
 			theServer.verbose = true;
 			System.out.println("Verbose mode: ACTIVE");
+		}*/
+		/* Check for launch arguments, allowed arguments:
+		 * argv[0] = RTSP listening port
+		 * -v : verbose mode
+		 * -f=number : FEC group size (Enabled with a value of 5 by default)
+		 * -s=number : Simulated packet loss percentage (Disabled with value of 5 by default)
+		 * 
+		 * Example: java Server 554 -v -f=10 -s=10
+		 * 
+		 * Note: The FEC group size must be between 2 and 16.
+		 * Note: The simulated packet loss percentage must be between 1 and 100.
+		 * Note: Using 0 for the FEC Group Size or Simulated Packet Loss will disable the feature.
+		 */
+		
+		if (argv.length < 1) {
+			System.out.println("Usage: java Server [RTSP listening port] [-v for verbose mode] [-f=number for FEC group size] [-s=number for simulated packet loss]");
+			System.exit(1);
 		}
 
+		// get RTSP socket port from the command line
+		int RTSPport = 1025;
+		try{
+			RTSPport = Integer.parseInt(argv[0]);
+		} catch (NumberFormatException e) {
+			System.out.println("Invalid RTSP port number. Please provide a valid integer.");
+			System.exit(1);
+		}
+		
+		// Default values for FEC group size and simulated packet loss
+		theServer.chkFEC.setSelected(true); // Default value is FEC enabled
+		theServer.spnFECGroup.setEnabled(true); // Enable FEC group size spinner by default
+		theServer.spnFECGroup.setValue(DEFAULT_FEC_GROUP_SIZE); // Default FEC group size
+		theServer.chkSimLoss.setSelected(false); // Default value is no simulated packet loss
+		theServer.spnPacketLoss.setEnabled(false); // Disable packet loss spinner by default
+		theServer.spnPacketLoss.setValue(DEFAULT_PACKET_LOSS); // Default simulated packet loss percentage
+		
+		if(argv.length >= 2) {
+			// Loop through arguments to check for verbose mode and other options
+			String arg;
+			// Loop through all arguments starting from index 1
+			for (int i = 1; i < argv.length; i++) {
+				arg = argv[i];
+				if (arg.equals("-v")) {
+					theServer.verbose = true;
+					System.out.println("Verbose mode: ACTIVE");
+				} else if (arg.startsWith("-f=")) {
+					String fecGroupSizeStr = arg.substring(3);
+					try {
+						int fecGroupSize = Integer.parseInt(fecGroupSizeStr);
+						if (fecGroupSize == 0) {
+							theServer.chkFEC.setSelected(false); // Disable FEC if group size is 0
+							theServer.spnFECGroup.setEnabled(false); // Disable FEC group size spinner
+						} else if(fecGroupSize < 2 || fecGroupSize > 16) {
+							System.out.println("FEC group size must be between 2 and 16. Using default value of "+ DEFAULT_FEC_GROUP_SIZE +".");
+						} else 
+							theServer.spnFECGroup.setValue(fecGroupSize);
+					} catch (NumberFormatException e) {
+						System.out.println("Invalid FEC group size. Using default value of "+ DEFAULT_FEC_GROUP_SIZE +".");
+						theServer.spnFECGroup.setValue(5);
+					}
+				} else if (arg.startsWith("-s=")) {
+					
+					String packetLossStr = arg.substring(3);
+					try {
+						int packetLoss = Integer.parseInt(packetLossStr);
+						if (packetLoss < 0 || packetLoss > 100) {
+							System.out.println("Simulated packet loss must be between 1 and 100. Disabling by default.");
+						} else {
+							theServer.chkSimLoss.setSelected(true); // Enable simulated packet loss
+							theServer.spnPacketLoss.setEnabled(true); // Enable packet loss spinner
+							theServer.spnPacketLoss.setValue(packetLoss); // Set the simulated packet loss percentage
+							theServer.lblSimLost.setVisible(true); // Show the simulated lost packets label
+						}
+						
+					} catch (NumberFormatException e) {
+						System.out.println("Invalid simulated packet loss. Disabling by default.");
+					}
+				} else {
+					System.out.println("Unknown argument: \"" + arg+"\". Ignoring it.");
+				}
+			}
+		}		
+		
 		// show GUI:
 		theServer.pack();
 		theServer.setVisible(true);
-		// get RTSP socket port from the command line
-		int RTSPport = Integer.parseInt(argv[0]);
 
 		// Initiate TCP connection with the client for the RTSP session
 		ServerSocket listenSocket = new ServerSocket(RTSPport);
@@ -186,7 +364,27 @@ public class Server extends JFrame {
 
 			if (request_type == SETUP) {
 				done = true;
-
+				
+				// Disable settings panel after setup (Just once)
+				if(theServer.settingsPanel.isEnabled()) {
+					SwingUtilities.invokeLater(() -> {
+						Queue <Component> components = new LinkedList<>();
+						components.add(theServer.settingsPanel);
+						while (!components.isEmpty()) {
+							Component comp = components.poll();
+							if (comp instanceof JPanel) {
+								JPanel panel = (JPanel) comp;
+								panel.setEnabled(false);
+								for (Component child : panel.getComponents()) {
+									components.add(child);
+								}
+							} else {
+								comp.setEnabled(false);
+							}
+						}
+					});
+				}
+				
 				// update RTSP state
 				state = READY;
 				System.out.println("New RTSP state: READY\n");
@@ -303,53 +501,46 @@ public class Server extends JFrame {
 					vsenddp = new DatagramPacket(video_bits, video_bits.length, ClientIPAddr, RTP_dest_port);
 					
 					// DEBUG: Add random lost packets
-					/* if((Math.random()*100d) > 95){
-						 lost++;
-						 System.out.println("DEBUG: Video packet lost! Total lost packets: " + lost);
-					 } else*/
-					
-					// Add a condition with a 50% chance to simulate a single packet loss inside the same FEC group
-					/*if ((Math.random() * 100d) < 50 && protectedPackets.size() == 2) {
-						// Simulate packet loss by not sending the video packet
-						System.out.println("DEBUG: Simulated video packet loss for FEC group. Packet number: " + video_packet.getSequenceNumber());
-
-					} else*/
-					VideoSocket.send(vsenddp);
+					 if(!chkSimLoss.isSelected() || (Math.random()*100d) > (int) spnPacketLoss.getModel().getValue()) {
+						 SwingUtilities.invokeLater(() -> lblLastFrame.setText("Last video frame: #" + imagenb));
+						 VideoSocket.send(vsenddp);
+					 } else {
+						 simLostPackets++;
+						 SwingUtilities.invokeLater(() -> lblSimLost.setText("Simulated lost packets: " + simLostPackets));
+					 	 //System.out.println("DEBUG: Video packet lost! Total lost packets: " + lost);
+					 }
 					// print the header bitstream
 					if (verbose)
 						video_packet.printHeader();
 					
 					// FEC Packet sending
-					// Add the current video packet to the protected packets list
-					protectedPackets.add(video_packet);
-					// Send FEC packet when packets list is full or if the video length is reached
-					if (protectedPackets.size() >= CommonValues.FEC_FREQUENCY || imagenb+videoSkips == VIDEO_LENGTH && protectedPackets.size() > 0) {	
-						// Create FEC packet
-						FECpacket fecPacket = new FECpacket(protectedPackets.toArray(RTPpacket[]::new));
-						RTPpacket fecRtpPacket = new RTPpacket(CommonValues.FEC_PTYPE, fecnb,
-								(int) (System.currentTimeMillis() % Integer.MAX_VALUE), fecPacket.getFecPacket(),
-								fecPacket.getFecPacketSize());
-						
-						// Send FEC packet
-						byte[] fec_bits = new byte[fecRtpPacket.getSize()];
-						fec_bits = fecRtpPacket.getPacket();
-						fecSendDP = new DatagramPacket(fec_bits, fec_bits.length, ClientIPAddr, RTP_dest_port);
-						try {
-							FecSocket.send(fecSendDP);
-						} catch (IOException e) {
-							System.out.println("[VideoSender] Error sending FEC packet: " + e.getStackTrace());
-						} finally {
-							fecnb++; // Increment FEC packet number						
-							// Clear the protected packets list after sending FEC
-							protectedPackets.clear();
+					if(chkFEC.isSelected()) {
+						// Add the current video packet to the protected packets list
+						protectedPackets.add(video_packet);
+						// Send FEC packet when packets list is full or if the video length is reached
+						if (protectedPackets.size() >= (int) spnFECGroup.getModel().getValue() || imagenb+videoSkips == VIDEO_LENGTH && protectedPackets.size() > 0) {	
+							// Create FEC packet
+							FECpacket fecPacket = new FECpacket(protectedPackets.toArray(RTPpacket[]::new));
+							RTPpacket fecRtpPacket = new RTPpacket(CommonValues.FEC_PTYPE, fecnb,
+									(int) (System.currentTimeMillis() % Integer.MAX_VALUE), fecPacket.getFecPacket(),
+									fecPacket.getFecPacketSize());
+							
+							// Send FEC packet
+							byte[] fec_bits = new byte[fecRtpPacket.getSize()];
+							fec_bits = fecRtpPacket.getPacket();
+							fecSendDP = new DatagramPacket(fec_bits, fec_bits.length, ClientIPAddr, RTP_dest_port);
+							try {
+								FecSocket.send(fecSendDP);
+							} catch (IOException e) {
+								System.out.println("[VideoSender] Error sending FEC packet: " + e.getStackTrace());
+							} finally {
+								fecnb++; // Increment FEC packet number						
+								// Clear the protected packets list after sending FEC
+								protectedPackets.clear();
+							}
 						}
 					}
 					
-					
-					
-					// Update GUI
-					// ------------------
-					SwingUtilities.invokeLater(new UpdateLabel());
 					// Sleep for the video frame period
 					Thread.sleep(CommonValues.STREAMING_FRAME_PERIOD);
 				} catch (Exception ex) {
@@ -401,7 +592,7 @@ public class Server extends JFrame {
 					if (verbose)
 						audio_packet.printHeader();
 					// update GUI
-					SwingUtilities.invokeLater(new UpdateLabel());
+					SwingUtilities.invokeLater(() -> lblLastChunk.setText("Last audio chunk: #" + audionb));
 					// Sleep for the audio frame period
 					Thread.sleep(CommonValues.STREAMING_AUDIO_FRAME_PERIOD);
 				} catch (Exception ex) {

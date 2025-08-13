@@ -387,8 +387,8 @@ public class Client {
 		videoBuffer = new PriorityBlockingQueue<RTPpacket>(1000);
 		audioBuffer = new PriorityBlockingQueue<RTPpacket>(1000);
 		fecQueue = new PriorityBlockingQueue<FECpacket>(100); // FEC queue for FEC packets
-		/** Buffer used to store FEC-protected packets. Size is set to 2 times the FEC Frequency */
-		protectionBuffer = new PriorityBlockingQueue<RTPpacket>(2*CommonValues.FEC_FREQUENCY);
+		/** Buffer used to store FEC-protected packets. */
+		protectionBuffer = new PriorityBlockingQueue<RTPpacket>(100);
 
 		// Init RTP socket listener thread
 		rtpSocketListener = new Thread(new RTPSocketListener());
@@ -799,13 +799,7 @@ public class Client {
 							System.out.println("Unknown payload type: " + rtp_packet.getPayloadType() + " - SequenceNumber: "
 									+ rtp_packet.getSequenceNumber());
 						}
-						
-						/*// -----------------------------
-						// Update stats text (invokeLater to avoid deadlock)
-						String statsStr = getStats();
-						SwingUtilities.invokeLater(() -> statsPane.setText(statsStr));
-						// ------------------------------
-						*/
+
 					} catch (InterruptedIOException iioe) {
 						// We can ignore this exception as it is just a timeout
 						// System.out.println("Nothing to read");
@@ -884,10 +878,6 @@ public class Client {
 								}
 								
 								videoStats.recoveredPackets++; // Increment lost packets count
-								
-								// Update stats text (invokeLater to avoid deadlock)
-								/*String statsStr = getStats();
-								SwingUtilities.invokeLater(() -> statsPane.setText(statsStr));*/
 								
 							} else {
 								// If we found more than one packet missing, we cannot recover them

@@ -20,7 +20,6 @@ public class CommonValues {
 	public static final int FEC_PTYPE = 116; // Payload type for FEC packets
 	public static final int FEC_E = 0; // FEC packet extension flag
 	public static final int FEC_L = 0; // FEC packet long-mask 
-	public static final int FEC_FREQUENCY = 5; // Frequency that the FEC packet is sent at (in video packets)
 
 	// Timers
 	public static final int STREAMING_FRAME_PERIOD = 30; // Frame period of the video to stream, in ms
