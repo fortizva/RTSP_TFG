@@ -403,13 +403,9 @@ public class Server extends JFrame {
 					System.out.println("DEBUG: FPS: " + theServer.videoCodec.getFPS() + " PLAYBACK_FRAME_PERIOD: "
 							+ CommonValues.PLAYBACK_FRAME_PERIOD + " STREAMING_FRAME_PERIOD: " + CommonValues.STREAMING_FRAME_PERIOD);
 
-				// Add a frame per second to send FEC packets
-				// theServer.FRAME_PERIOD = 1000 / (theServer.codec.getFPS()+1);
-				// theServer.timer.setDelay(theServer.FRAME_PERIOD);
-
 				// Init audio properties
-				theServer.audioCodec = new Codec(VideoFileName); // Use different codec for audio to read audio data
-																	// separately
+				// Use different codec for audio to read audio data separately
+				theServer.audioCodec = new Codec(VideoFileName);
 				theServer.audioThread = new Thread(theServer.new AudioSender());
 				if (theServer.verbose)
 					System.out.println("DEBUG: AUDIO_FRAME_PERIOD: " + CommonValues.PLAYBACK_AUDIO_FRAME_PERIOD 

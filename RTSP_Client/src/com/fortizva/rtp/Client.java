@@ -448,6 +448,7 @@ public class Client {
 	}
 	s += String.format("	  <b>Buffer size:</b> %d packets<br>\n", audioStats.bufferSize);
 	s += String.format("      <b>Initial packet #:</b> %d<br>\n", audioStats.initialPacketNb);
+	s += String.format("	  <b>Expected packet #:</b> %d<br>\n", audioStats.expectedPacketNb);
 	s += String.format("      <b>Last packet #:</b> %d<br>\n", audioStats.lastReceivedPacketNb);
 	s += String.format("      <b>Last played packet #:</b> %d<br>\n", audioStats.lastPlayedPacketNb);
 	s += String.format("      <b>Lost packets:</b> %d<br>\n", audioStats.lostPackets);
@@ -466,6 +467,7 @@ public class Client {
 	}
 	s += String.format("	  <b>Buffer size:</b> %d packets<br>\n", videoStats.bufferSize);
 	s += String.format("      <b>Initial packet #:</b> %d<br>\n", videoStats.initialPacketNb);
+	s += String.format("	  <b>Expected packet #:</b> %d<br>\n", videoStats.expectedPacketNb);
 	s += String.format("      <b>Last packet #:</b> %d<br>\n", videoStats.lastReceivedPacketNb);
 	s += String.format("      <b>Last played packet #:</b> %d<br>\n", videoStats.lastPlayedPacketNb);
 	s += String.format("      <b>Lost packets:</b> %d<br>\n", videoStats.lostPackets);
@@ -534,7 +536,7 @@ public class Client {
 	 * Main method to start the client application.
 	 * 
 	 * @param argv Command line arguments:
-	 * 	[Server hostname] [Server RTSP port] [Video file requested] [-v (optional for verbose mode)]
+	 * 	[Server hostname] [Server RTSP port] [Video file requested] [-v (Verbose mode)] [-V (Super verbose mode)]
 	 */
 	public static void main(String argv[]) throws Exception {
 		// Create a Client object
@@ -870,10 +872,22 @@ public class Client {
 								// Update video buffer state
 								videoBufferBar.putBufferState(lostPacket.getSequenceNumber(), BufferBar.FrameStatus.RECOVERED);
 								
-								// Remove the FEC group packets from the protection buffer
+								/* Remove the FEC group packets from the protection buffer
+								 * Also remove packets that belong to older FEC groups
+								 * This is done to avoid keeping old packets in the buffer that are no longer needed.
+								 */
 								for (int i = 0; i < protectedPackets.length; i++) {
 									if (protectedPackets[i] != null) {
 										protectionBuffer.remove(protectedPackets[i]);
+									}
+								}
+								
+								while (protectionBuffer.size() > 0 && 
+										(protectionBuffer.peek().getSequenceNumber() < baseSeqNum - CommonValues.MAX_FEC_GROUP_SIZE)) {
+									// Remove packets that are older than the current FEC group
+									RTPpacket oldPacket = protectionBuffer.poll();
+									if (verbose) {
+										System.out.println("[FECListener] Removing old packet with SeqNum # " + oldPacket.getSequenceNumber());
 									}
 								}
 								
@@ -881,7 +895,8 @@ public class Client {
 								
 							} else {
 								// If we found more than one packet missing, we cannot recover them
-								System.out.println("Warning: More than one packet lost, FEC cannot recover them. Lost packets: " + (maskLength - pp));
+								if(verbose)
+									System.out.println("Warning: More than one packet lost, FEC cannot recover them. Lost packets: " + (maskLength - pp));
 							}
 						}
 		            }
@@ -918,32 +933,32 @@ public class Client {
 				if (!running)
 					break; // Exit if the running flag is false
 				try {
-					RTPpacket rtp_packet = videoBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
+					RTPpacket rtp_packet = videoBuffer.peek(); // Non-blocking call to get the next packet
 					if (rtp_packet != null) {
-						
-						// Update buffer size stats (synchronized)
-						synchronized (videoStats.bufferLock) {
-							videoStats.bufferSize = videoBuffer.size();
-						}
-						
-						// get the payload bitstream from the RTPpacket object
-						int payload_length = rtp_packet.getPayloadLength();
-						byte[] payload = new byte[payload_length];
-						payload = rtp_packet.getPayload();
-						
-						// get an Image object from the payload bitstream
-						Toolkit toolkit = Toolkit.getDefaultToolkit();
-						Image image = toolkit.createImage(payload, 0, payload_length);
-						
-						// Check if current rtp_packet sequence number is lower than the last packet number
-						if (rtp_packet.getSequenceNumber() < videoStats.lastPlayedPacketNb) {
-							// If the packet is older than the last packet, print a warning
-							System.out.println("Warning: Received an old video packet with SeqNum # " + rtp_packet.getSequenceNumber() +
-									" - Last played packet SeqNum # " + videoStats.lastPlayedPacketNb+ ". Skipping frame...");
-							videoStats.latePackets++; // Increment late packet count
-							// Update buffer state for late packets
-							videoBufferBar.putBufferState(rtp_packet.getSequenceNumber(), BufferBar.FrameStatus.LATE);
-						} else {
+						// Check if the packet is the expected one or if the expected packet number is -1 (initial state)
+						if (rtp_packet.getSequenceNumber() == videoStats.expectedPacketNb || videoStats.expectedPacketNb == -1) {
+							// Remove the packet from the buffer if it is the expected one
+							videoBuffer.remove(rtp_packet);
+							
+							if (videoStats.expectedPacketNb == -1) {
+								// If this is the first packet, set the initial packet number
+								videoStats.initialPacketNb = rtp_packet.getSequenceNumber();
+							}
+							
+							// Update buffer size stats (synchronized)
+							synchronized (videoStats.bufferLock) {
+								videoStats.bufferSize = videoBuffer.size();
+							}
+							
+							// get the payload bitstream from the RTPpacket object
+							int payload_length = rtp_packet.getPayloadLength();
+							byte[] payload = new byte[payload_length];
+							payload = rtp_packet.getPayload();
+							
+							// get an Image object from the payload bitstream
+							Toolkit toolkit = Toolkit.getDefaultToolkit();
+							Image image = toolkit.createImage(payload, 0, payload_length);
+							
 							// Update video-specific stats
 							videoStats.lastPlayedPacketNb = rtp_packet.getSequenceNumber(); // Update last played packet number
 							videoStats.framesSinceUpdate++;
@@ -959,8 +974,20 @@ public class Client {
 								icon = new ImageIcon(image);
 								iconLabel.setIcon(icon);
 							});
+							
+						} else if(rtp_packet.getSequenceNumber() < videoStats.expectedPacketNb) {
+							// If the packet is older than the expected packet, print a warning and discard it
+							videoBuffer.remove(rtp_packet); // Remove the packet from the buffer
+							if(verbose)
+								System.out.println("Warning: Received an old video packet with SeqNum # " + rtp_packet.getSequenceNumber() +
+									" - Last played packet SeqNum # " + videoStats.lastPlayedPacketNb+ ". Skipping frame...");
+							videoStats.latePackets++; // Increment late packet count
+							// Update buffer state for late packets
+							videoBufferBar.putBufferState(rtp_packet.getSequenceNumber(), BufferBar.FrameStatus.LATE);
 						}
+						// If packet time has not yet arrived, we simply wait for the next frame period and check again
 					}
+					videoStats.expectedPacketNb++; // Increment expected packet number
 					Thread.sleep(CommonValues.PLAYBACK_FRAME_PERIOD); // Sleep for the frame period
 				} catch (InterruptedException ie) {
 					if (running)
@@ -991,25 +1018,38 @@ public class Client {
 				if (!running)
 					break; // Exit if the running flag is false
 				try {
-					RTPpacket rtp_packet = audioBuffer.poll(BUFFER_TIMEOUT, TimeUnit.MILLISECONDS); // Blocking call
-					if (rtp_packet != null) {						
-						// get the payload bitstream from the RTPpacket object
-						int payload_length = rtp_packet.getPayloadLength();
-						byte[] payload = new byte[payload_length];
-						payload = rtp_packet.getPayload();
-
-						// Check if current rtp_packet sequence number is lower than the last packet number
-						if (rtp_packet.getSequenceNumber() < audioStats.lastPlayedPacketNb) {
-							// If the packet is older than the last packet, print a warning
-							System.out.println("Warning: Received an old audio packet with SeqNum # " + rtp_packet.getSequenceNumber() +
-									" - Last played packet SeqNum # " + audioStats.lastPlayedPacketNb + ". Skipping frame...");
-							audioStats.latePackets++; // Increment late packet count
-						} else {
-							audioStats.lastPlayedPacketNb = rtp_packet.getSequenceNumber(); // Update last received packet number
-							// write the data to the speaker
-							speaker.write(payload, 0, payload_length);
+					RTPpacket rtp_packet = audioBuffer.peek(); // Non-blocking call to get the next packet
+					
+					if (rtp_packet != null) {		
+							if(rtp_packet.getSequenceNumber() == audioStats.expectedPacketNb || audioStats.expectedPacketNb == -1) {
+								// Remove the packet from the buffer if it is the expected one
+								audioBuffer.remove(rtp_packet);
+								
+								if (audioStats.expectedPacketNb == -1) {
+									// If this is the first packet, set the initial packet number
+									audioStats.initialPacketNb = rtp_packet.getSequenceNumber();
+								}
+																
+								// get the payload bitstream from the RTPpacket object
+								int payload_length = rtp_packet.getPayloadLength();
+								byte[] payload = new byte[payload_length];
+								payload = rtp_packet.getPayload();
+		
+								audioStats.lastPlayedPacketNb = rtp_packet.getSequenceNumber(); // Update last received packet number
+								// write the data to the speaker
+								speaker.write(payload, 0, payload_length);
+									
+							} else if(rtp_packet.getSequenceNumber() < audioStats.expectedPacketNb) {
+								// If the packet is older than the expected packet, print a warning and discard it
+								audioBuffer.remove(rtp_packet); // Remove the packet from the buffer
+								if(verbose)
+									System.out.println("Warning: Received an old audio packet with SeqNum # " + rtp_packet.getSequenceNumber() +
+										" - Last played packet SeqNum # " + audioStats.lastPlayedPacketNb+ ". Skipping frame...");
+								audioStats.latePackets++; // Increment late packet count
+							}
+							// If packet time has not yet arrived, we simply wait for the next frame period and check again
 						}
-					}
+					audioStats.expectedPacketNb++; // Increment expected packet number
 					Thread.sleep(CommonValues.PLAYBACK_AUDIO_FRAME_PERIOD); // Sleep for the frame period
 				} catch (InterruptedException ie) {
 					if (running)

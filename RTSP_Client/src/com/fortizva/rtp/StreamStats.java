@@ -36,6 +36,8 @@ public class StreamStats {
     public int bufferSize = 0;
     /** Number of recovered packets that were received late. */
     public int latePackets = 0;
+    /** Sequence number expected by the player. Forces the player to play at a specific frequency. */
+    public int expectedPacketNb = -1;
     
     // Used for video streams only
     /** [Video] Current frames per second (FPS). */

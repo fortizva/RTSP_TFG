@@ -2,10 +2,6 @@ package com.fortizva.packets;
 
 public class CommonValues {
 
-	// Header and FEC sizes
-	public static final int RTP_HEADER_SIZE = 12; // Size of the RTP header in bytes
-	public static final int FEC_HEADER_SIZE = 10; // Size of the FEC header in bytes
-	public static final int FEC_LEVEL_HEADER_SIZE = 4;
 	
 	// RTP packet constants
 	public static final int RTP_RCV_PORT = 25000; // Port for sending and receiving RTP packets
@@ -16,10 +12,16 @@ public class CommonValues {
 	public static final int RTP_MARKER = 0; // Marker bit
 	public static final int RTP_SSRC = 0; // Synchronization source identifier
 	
+	// Header and FEC sizes
+	public static final int RTP_HEADER_SIZE = 12; // Size of the RTP header in bytes
+	public static final int FEC_HEADER_SIZE = 10; // Size of the FEC header in bytes
+	public static final int FEC_LEVEL_HEADER_SIZE = 4;
+	
 	// FEC packet constants
 	public static final int FEC_PTYPE = 116; // Payload type for FEC packets
 	public static final int FEC_E = 0; // FEC packet extension flag
-	public static final int FEC_L = 0; // FEC packet long-mask 
+	public static final int FEC_L = 0; // FEC packet long-mask
+	public static final int MAX_FEC_GROUP_SIZE = 16; // Maximum size of a FEC group
 
 	// Timers
 	public static final int STREAMING_FRAME_PERIOD = 30; // Frame period of the video to stream, in ms
