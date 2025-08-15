@@ -10,6 +10,8 @@ import java.awt.Image;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.BufferedReader;
@@ -135,18 +137,59 @@ class BufferBar extends JPanel {
      * @param startFrame Start frame number. (inclusive)
      * @param endFrame End frame number. (exclusive)
      * @param status Status to set for the frames between startFrame (inclusive) and endFrame (exclusive).
+     * @param exceptions Optional FrameStatus exceptions. If a frame is already set to one of these statuses, it will not be overwritten.
      */
-    public void fillBetweenFrames(int startFrame, int endFrame, FrameStatus status) {
+    public void fillBetweenFrames(int startFrame, int endFrame, FrameStatus status, FrameStatus... exceptions) {
 		synchronized (bufferLock) {
 	    	if (bufferStates == null) {
 				bufferStates = new TreeMap<>();
 			}
-			for (int i = startFrame; i < endFrame; i++) {
+			for (int i = startFrame; i <= endFrame; i++) {
+				if(bufferStates.containsKey(i)) {
+					// If the frame is already set, check if it is in exceptions
+					boolean isException = false;
+					for (FrameStatus exception : exceptions) {
+						if (bufferStates.get(i) == exception) {
+							isException = true;
+							break;
+						}
+					}
+					if (!isException) {
+						bufferStates.put(i, status);
+					}
+				} else
+					// If the frame is not set, just set it
 				bufferStates.put(i, status);
 			}
 		}
 	}
 
+    public BufferBar() {
+        super();
+        addMouseMotionListener(new MouseMotionListener() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+            	if(bufferStates != null && !bufferStates.isEmpty()) {
+	                int width = getWidth() / NUM_FRAMES_DISPLAYED;
+	                int totalWidth = width * NUM_FRAMES_DISPLAYED;
+	                int xOffset = (getWidth() - totalWidth) / 2;
+	                int x = e.getX();
+	                int index = (x - xOffset) / width;
+	                // Only show tooltip for valid rectangles
+	                if (index >= 0 && index < Math.min(NUM_FRAMES_DISPLAYED, bufferStates.size())) {
+	                    int seqNum = bufferStates.keySet().toArray()[index] instanceof Integer ? (Integer) bufferStates.keySet().toArray()[index] : -1;
+	                    setToolTipText("Sequence #: " + seqNum);
+	                } else {
+	                    setToolTipText(null);
+	                }
+            }
+            }
+			@Override
+			public void mouseDragged(MouseEvent e) {			
+			}
+        });
+    }
+    
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -157,8 +200,19 @@ class BufferBar extends JPanel {
 				g.fillRect(0, 0, getWidth(), getHeight());
 				return; // No states to display
 			}
-	        states = new ArrayList<>(bufferStates.values());
+	        // Get the most recent NUM_FRAMES_DISPLAYED states
+	        int size = bufferStates.size();
+	        states = new ArrayList<>();
+	        if (size > NUM_FRAMES_DISPLAYED) {
+	            // Only take the last NUM_FRAMES_DISPLAYED entries
+	            bufferStates.values().stream()
+	                .skip(size - NUM_FRAMES_DISPLAYED)
+	                .forEach(states::add);
+	        } else {
+	            states.addAll(bufferStates.values());
+	        }
         }
+        
         int width = getWidth() / NUM_FRAMES_DISPLAYED;
         int totalWidth = width * NUM_FRAMES_DISPLAYED;
         int xOffset = (getWidth() - totalWidth) / 2; // Center the bar
@@ -512,11 +566,12 @@ public class Client {
 					System.out.println("[UpdateStats] Lost " + calculatedLostPackets + " packets between " + stats.lastReceivedPacketNb
 							+ " and " + rtp_packet.getSequenceNumber());
 				}
-				// Update buffer state for lost packets
-				videoBufferBar.fillBetweenFrames(stats.lastReceivedPacketNb + 1, rtp_packet.getSequenceNumber() - 1,
-						BufferBar.FrameStatus.LOST);
-			}
+				if (rtp_packet.getPayloadType() == CommonValues.MJPEG_TYPE) {
+					// Update buffer state for lost packets
+					videoBufferBar.fillBetweenFrames(stats.lastReceivedPacketNb + 1, rtp_packet.getSequenceNumber()-1, BufferBar.FrameStatus.LOST, BufferBar.FrameStatus.RECOVERED, BufferBar.FrameStatus.LATE);
+				}
 			stats.packetLoss = (stats.lostPackets * 100) / (rtp_packet.getSequenceNumber() - stats.initialPacketNb + 1);
+			}
 		}
 		
 		// Update packet delay and jitter
@@ -794,6 +849,10 @@ public class Client {
 							videoBuffer.offer(rtp_packet);
 							protectionBuffer.offer(rtp_packet); // Add to FEC buffer as well
 							
+							if (protectionBuffer.size() > CommonValues.MAX_FEC_GROUP_SIZE * 3) {
+								protectionBuffer.poll(); // Remove oldest packet if buffer exceeds size
+							}
+							
 							// -----------------------------
 							// Update video stats
 							// -----------------------------
@@ -897,7 +956,7 @@ public class Client {
 								}
 								
 								while (protectionBuffer.size() > 0 && 
-										(protectionBuffer.peek().getSequenceNumber() < baseSeqNum - CommonValues.MAX_FEC_GROUP_SIZE)) {
+										(protectionBuffer.peek().getSequenceNumber() < baseSeqNum - CommonValues.MAX_FEC_GROUP_SIZE * 3)) {
 									// Remove packets that are older than the current FEC group
 									RTPpacket oldPacket = protectionBuffer.poll();
 									if (verbose) {
