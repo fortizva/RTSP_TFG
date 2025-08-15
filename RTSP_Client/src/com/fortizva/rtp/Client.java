@@ -230,6 +230,7 @@ public class Client {
 	// DEBUG
 	// ----
 	static boolean verbose = false;
+	static boolean superVerbose = false; // Super verbose mode for debugging
 
 	// Threading
 	// ----------------
@@ -396,8 +397,8 @@ public class Client {
 		// Set the thread as a daemon so it will not block the application from exiting
 		rtpSocketListener.setDaemon(true);
 
-		videoThread = new Thread(new videoTimerListener());
-		audioThread = new Thread(new audioTimerListener());
+		videoThread = new Thread(new VideoTimerListener());
+		audioThread = new Thread(new AudioTimerListener());
 		fecThread = new Thread(new FECListener());
 		videoThread.setDaemon(true);
 		audioThread.setDaemon(true);
@@ -508,7 +509,7 @@ public class Client {
 			stats.lostPackets += calculatedLostPackets;
 			if(calculatedLostPackets > 0) {
 				if (verbose) {
-					System.out.println("Lost " + calculatedLostPackets + " packets between " + stats.lastReceivedPacketNb
+					System.out.println("[UpdateStats] Lost " + calculatedLostPackets + " packets between " + stats.lastReceivedPacketNb
 							+ " and " + rtp_packet.getSequenceNumber());
 				}
 				// Update buffer state for lost packets
@@ -550,18 +551,31 @@ public class Client {
 
 		// get video filename to request:
 		VideoFileName = argv[2];
-
-		// check for verbose
-		if (argv.length >= 4 && argv[3].equals("-v")) {
-			verbose = true;
-			System.out.println("Verbose mode: ACTIVE");
+		
+		if(argv.length >= 4) {
+			String arg;
+			// Loop through all arguments starting from index 3
+			for(int i = 3; i < argv.length; i++) {
+				arg = argv[i];
+				if(arg.equals("-v")) {
+					verbose = true;
+					System.out.println("Verbose mode: ACTIVE");
+				} else if(arg.equals("-V")) {
+					superVerbose = true;
+					// Super verbose mode enables all debugging messages, including simple verbose ones
+					verbose = true;
+					System.out.println("Super verbose mode: ACTIVE  -- Prepare for a lot of debug messages!");
+				} else {
+					System.out.println("Unknown argument: \"" + arg + "\". Ignoring it.");
+				}
+			}
 		}
 
 		// Initialize soundcard
 		theClient.audio_initialization();
 
 		// Establish a TCP connection with the server to exchange RTSP messages
-		// ------------------
+		// ------------------		
 		theClient.RTSPsocket = new Socket(ServerIPAddr, RTSP_server_port);
 
 		// Set input and output stream filters:
@@ -583,7 +597,7 @@ public class Client {
 		public void actionPerformed(ActionEvent e) {
 
 			if (verbose)
-				System.out.println("Setup Button pressed !");
+				System.out.println("[UI] Setup Button pressed !");
 
 			if (state == INIT) {
 				// Init non-blocking RTPsocket that will be used to receive data
@@ -613,7 +627,7 @@ public class Client {
 					// state = ....
 					state = READY;
 					if (verbose)
-						System.out.println("New RTSP state: READY (" + state + ")");
+						System.out.println("[SETUP] New RTSP state: READY (" + state + ")");
 				}
 			} // else if state != INIT then do nothing
 		}
@@ -626,7 +640,7 @@ public class Client {
 		public void actionPerformed(ActionEvent e) {
 
 			if (verbose)
-				System.out.println("Play Button pressed !");
+				System.out.println("[UI] Play Button pressed !");
 
 			if (state == READY) {
 				// increase RTSP sequence number
@@ -642,7 +656,7 @@ public class Client {
 					// change RTSP state and print out new state
 					state = Client.PLAYING;
 					if (verbose)
-						System.out.println("New RTSP state: PLAYING (" + state + ")");
+						System.out.println("[PLAY] New RTSP state: PLAYING (" + state + ")");
 
 					running = true; // Set running flag to true
 					paused = false; // Set paused flag to false
@@ -675,7 +689,7 @@ public class Client {
 		public void actionPerformed(ActionEvent e) {
 
 			if (verbose)
-				System.out.println("Pause Button pressed !");
+				System.out.println("[UI] Pause Button pressed !");
 
 			if (state == PLAYING) {
 				// increase RTSP sequence number
@@ -691,7 +705,7 @@ public class Client {
 					// change RTSP state and print out new state
 					state = Client.READY;
 					if (verbose)
-						System.out.println("New RTSP state: READY (" + state + ")");
+						System.out.println("[PAUSE] New RTSP state: READY (" + state + ")");
 
 					paused = true; // Set paused flag to true
 
@@ -709,7 +723,7 @@ public class Client {
 		public void actionPerformed(ActionEvent e) {
 
 			if (verbose)
-				System.out.println("Teardown Button pressed !");
+				System.out.println("[UI] Teardown Button pressed !");
 
 			// increase RTSP sequence number
 			RTSPSeqNb++;
@@ -724,7 +738,7 @@ public class Client {
 				// change RTSP state and print out new state
 				state = Client.INIT;
 				if (verbose)
-					System.out.println("New RTSP state: INIT(" + state + ")");
+					System.out.println("[TEARDOWN] New RTSP state: INIT(" + state + ")");
 
 				running = false; // Set running flag to false
 				paused = false; // Set paused flag to false
@@ -758,8 +772,8 @@ public class Client {
 						// create an RTPpacket object from the DP
 						RTPpacket rtp_packet = new RTPpacket(rcvdp.getData(), rcvdp.getLength());
 						// print important header fields of the RTP packet received:
-						if (verbose) {
-							System.out.println("Got RTP packet with SeqNum # " + rtp_packet.getSequenceNumber()
+						if (superVerbose) {
+							System.out.println("[RTPSocketListener] Got RTP packet with SeqNum # " + rtp_packet.getSequenceNumber()
 									+ " TimeStamp "
 									+ rtp_packet.getTimeStamp() + " ms, of type " + rtp_packet.getPayloadType());
 
@@ -790,7 +804,7 @@ public class Client {
 						} else if (rtp_packet.getPayloadType() == CommonValues.FEC_PTYPE) {
 							// FEC packet handling
 							if(verbose)
-								System.out.println("Received FEC packet with SeqNum # " + rtp_packet.getSequenceNumber());
+								System.out.println("[RTPSocketListener] Received FEC packet with SeqNum # " + rtp_packet.getSequenceNumber());
 							// Create FECpacket object from the received packet
 							FECpacket fec_packet = new FECpacket(rtp_packet.getPayload());
 							
@@ -896,7 +910,7 @@ public class Client {
 							} else {
 								// If we found more than one packet missing, we cannot recover them
 								if(verbose)
-									System.out.println("Warning: More than one packet lost, FEC cannot recover them. Lost packets: " + (maskLength - pp));
+									System.out.println("[FECListener] Warning: More than one packet lost, FEC cannot recover them. Lost packets: " + (maskLength - pp));
 							}
 						}
 		            }
@@ -913,12 +927,12 @@ public class Client {
 
 	
 	/**
-	 * videoTimerListener class
+	 * VideoTimerListener class
 	 * <br>
 	 * Thread to process video frames from the video buffer.
 	 * Displays the frames in the GUI.
 	 */
-	class videoTimerListener implements Runnable {
+	class VideoTimerListener implements Runnable {
 		public void run() {
 			while (running) {
 				synchronized (pauseLock) {
@@ -926,7 +940,7 @@ public class Client {
 						try {
 							pauseLock.wait(); // Wait until the pauseLock is notified
 						} catch (InterruptedException e) {
-							System.out.println("[videoTimerListener] Exception caught: " + e);
+							System.out.println("[VideoTimerListener] Exception caught: " + e);
 						}
 					}
 				}
@@ -979,7 +993,7 @@ public class Client {
 							// If the packet is older than the expected packet, print a warning and discard it
 							videoBuffer.remove(rtp_packet); // Remove the packet from the buffer
 							if(verbose)
-								System.out.println("Warning: Received an old video packet with SeqNum # " + rtp_packet.getSequenceNumber() +
+								System.out.println("[VideoTimerListener] Warning: Received an old video packet with SeqNum # " + rtp_packet.getSequenceNumber() +
 									" - Last played packet SeqNum # " + videoStats.lastPlayedPacketNb+ ". Skipping frame...");
 							videoStats.latePackets++; // Increment late packet count
 							// Update buffer state for late packets
@@ -991,19 +1005,19 @@ public class Client {
 					Thread.sleep(CommonValues.PLAYBACK_FRAME_PERIOD); // Sleep for the frame period
 				} catch (InterruptedException ie) {
 					if (running)
-						System.out.println("[videoTimerListener] Exception caught: " + ie);
+						System.out.println("[VideoTimerListener] Exception caught: " + ie);
 				}
 			}
 		}
 	}
 
 	/**
-	 * audioTimerListener class
+	 * AudioTimerListener class
 	 * <br>
 	 * Thread to process audio frames from the audio buffer.
 	 * Plays the audio frames through the speaker.
 	 */
-	class audioTimerListener implements Runnable {
+	class AudioTimerListener implements Runnable {
 		public void run() {
 			while (running) {
 				synchronized (pauseLock) {
@@ -1011,7 +1025,7 @@ public class Client {
 						try {
 							pauseLock.wait(); // Wait until the pauseLock is notified
 						} catch (InterruptedException e) {
-							System.out.println("[audioTimerListener] Exception caught: " + e);
+							System.out.println("[AudioTimerListener] Exception caught: " + e);
 						}
 					}
 				}
@@ -1043,7 +1057,7 @@ public class Client {
 								// If the packet is older than the expected packet, print a warning and discard it
 								audioBuffer.remove(rtp_packet); // Remove the packet from the buffer
 								if(verbose)
-									System.out.println("Warning: Received an old audio packet with SeqNum # " + rtp_packet.getSequenceNumber() +
+									System.out.println("[AudioTimerListener] Warning: Received an old audio packet with SeqNum # " + rtp_packet.getSequenceNumber() +
 										" - Last played packet SeqNum # " + audioStats.lastPlayedPacketNb+ ". Skipping frame...");
 								audioStats.latePackets++; // Increment late packet count
 							}
@@ -1053,7 +1067,7 @@ public class Client {
 					Thread.sleep(CommonValues.PLAYBACK_AUDIO_FRAME_PERIOD); // Sleep for the frame period
 				} catch (InterruptedException ie) {
 					if (running)
-						System.out.println("[audioTimerListener] Exception caught: " + ie);
+						System.out.println("[AudioTimerListener] Exception caught: " + ie);
 				}
 			}
 		}
@@ -1069,7 +1083,7 @@ public class Client {
 		try {
 			// parse status line and extract the reply_code:
 			String StatusLine = RTSPBufferedReader.readLine();
-			if (verbose)
+			if (superVerbose)
 				System.out.println(StatusLine);
 
 			StringTokenizer tokens = new StringTokenizer(StatusLine);
@@ -1079,11 +1093,11 @@ public class Client {
 			// if reply code is OK get and print the 2 other lines
 			if (reply_code == 200) {
 				String SeqNumLine = RTSPBufferedReader.readLine();
-				if (verbose)
+				if (superVerbose)
 					System.out.println(SeqNumLine);
 
 				String SessionLine = RTSPBufferedReader.readLine();
-				if (verbose)
+				if (superVerbose)
 					System.out.println(SessionLine);
 
 				// if state == INIT gets the Session Id from the SessionLine
@@ -1092,7 +1106,7 @@ public class Client {
 				RTSPid = Integer.parseInt(tokens.nextToken());
 			}
 		} catch (Exception ex) {
-			System.out.println("[parseServerResponse] Exception caught: " + ex);
+			System.out.println("[ParseServerResponse] Exception caught: " + ex);
 			cleanExit();
 		}
 
@@ -1125,12 +1139,12 @@ public class Client {
 					throw new IllegalArgumentException("Unexpected value: " + state);
 			}
 			RTSPBufferedWriter.write(request_line + CommonValues.CRLF);
-			if (verbose)
+			if (superVerbose)
 				System.out.println("C: " + request_line);
 
 			// write the CSeq line
 			RTSPBufferedWriter.write("CSeq: " + RTSPSeqNb + CommonValues.CRLF);
-			if (verbose)
+			if (superVerbose)
 				System.out.println("C: " + "CSeq: " + RTSPSeqNb + CommonValues.CRLF);
 			/*
 			 * If the request type is "SETUP",
@@ -1142,18 +1156,18 @@ public class Client {
 			if (request_type.equals("SETUP")) {
 				RTSPBufferedWriter
 						.write("Transport: RTP/UDP; client_port= " + CommonValues.RTP_RCV_PORT + CommonValues.CRLF);
-				if (verbose)
+				if (superVerbose)
 					System.out.println("C: " + "Transport: RTP/UDP; client_port= " + CommonValues.RTP_RCV_PORT
 							+ CommonValues.CRLF);
 			} else {
 				RTSPBufferedWriter.write("Session: " + RTSPid + CommonValues.CRLF);
-				if (verbose)
+				if (superVerbose)
 					System.out.println("C: " + "Session: " + RTSPid + CommonValues.CRLF);
 			}
 
 			RTSPBufferedWriter.flush();
 		} catch (Exception ex) {
-			System.out.println("[sendRTSPRequest] Exception caught: " + ex);
+			System.out.println("[SendRTSPRequest] Exception caught: " + ex);
 			cleanExit();
 		}
 	}
@@ -1224,9 +1238,9 @@ public class Client {
 				stats.dispose();
 			}
 		} catch (IOException e) {
-			System.out.println("[cleanExit] IOException caught: " + e);
+			System.out.println("[CleanExit] IOException caught: " + e);
 		} catch (Exception e) {
-			System.out.println("[cleanExit] Exception caught: " + e);
+			System.out.println("[CleanExit] Exception caught: " + e);
 		} finally {
 			System.exit(0);
 		}
