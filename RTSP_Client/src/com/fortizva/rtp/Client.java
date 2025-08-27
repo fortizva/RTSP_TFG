@@ -253,7 +253,16 @@ class ColorIcon implements Icon {
 }
 
 /**
- * Usage: java Client [Server hostname] [Server RTSP listening port] [Video file requested]
+ * Usage: java Client &lthostname&gt &ltRTSP listening port&gt &ltVideo file path&gt [-vV]
+ * <br>
+ * Parameters:
+ * <ul>
+ * <li>hostname</li> <dd>IP address or hostname of the RTSP server</dd>
+ * <li>RTSP listening port</li> <dd>Port number of the RTSP server</dd>
+ * <li>Video file path</li> <dd>Path to the video file on the server</dd>
+ * <li>-v</li> <dd>Enable verbose mode for detailed logging</dd>
+ * <li>-V</li> <dd>Enable super verbose mode for extensive debugging output</dd>
+ * </ul>
  */
 public class Client {
 

@@ -37,8 +37,17 @@ import com.fortizva.packets.FECpacket;
 import com.fortizva.packets.RTPpacket;
 
 /**
- * Usage: java Server [RTSP listening port]
-*/
+ * Usage: java Server &ltRTSP listening port&gt [-v] [-f=FEC group size] [-s=Simulated packet loss]
+ * <br>
+ * Parameters:
+ * <ul>
+ * <li>&ltRTSP listening port&gt</li> <dd>Port number for RTSP connection (e.g., 1025)</dd>
+ * <li>-v</li> <dd>Enable verbose mode for debugging output</dd>
+ * <li>-f=groupSize</li> <dd>Set FEC group size (between 2 and 16, default is enabled with a value of 5)</dd>
+ * <li>-s=packetLoss</li> <dd>Set simulated packet loss percentage (between 1 and 100, default is disabled with a value of 5)</dd>
+ * </ul>
+ * Disables FEC or simulated packet loss by setting their values to 0.
+ */
 public class Server extends JFrame {
 
 	private static final long serialVersionUID = 1L;
@@ -240,24 +249,19 @@ public class Server extends JFrame {
 	/**
 	 * Main method to start the media server.
 	 * 
-	 * @param argv Command line arguments: [RTSP listening port] [-v for verbose mode]
+	 * @param argv Command line arguments: &ltRTSP listening port&gt [-v for verbose mode] [-f=number for FEC group size] [-s=number for simulated packet loss]
 	 */
 	public static void main(String argv[]) throws Exception {
 		// create a Server object
 		Server theServer = new Server();
 
-		
-		/*if (argv.length >= 2 && argv[1].equals("-v")) {
-			theServer.verbose = true;
-			System.out.println("Verbose mode: ACTIVE");
-		}*/
 		/* Check for launch arguments, allowed arguments:
 		 * argv[0] = RTSP listening port
 		 * -v : verbose mode
 		 * -f=number : FEC group size (Enabled with a value of 5 by default)
 		 * -s=number : Simulated packet loss percentage (Disabled with value of 5 by default)
 		 * 
-		 * Example: java Server 554 -v -f=10 -s=10
+		 * Example: java Server 1025 -v -f=10 -s=10
 		 * 
 		 * Note: The FEC group size must be between 2 and 16.
 		 * Note: The simulated packet loss percentage must be between 1 and 100.
