@@ -581,6 +581,13 @@ public class Client {
 				}
 			stats.packetLoss = (stats.lostPackets * 100) / (rtp_packet.getSequenceNumber() - stats.initialPacketNb + 1);
 			}
+		} else if(rtp_packet.getSequenceNumber() < stats.lastReceivedPacketNb) {
+			// Out of order packet
+			stats.lostPackets--; // Decrease lost packets count as we received the packet already counted as lost
+			videoBufferBar.putBufferState(rtp_packet.getSequenceNumber(), BufferBar.FrameStatus.RECEIVED); // Mark as received
+			if (verbose) {
+				System.out.println("[UpdateStats] Out of order packet received: " + rtp_packet.getSequenceNumber() + " (last: " + stats.lastReceivedPacketNb + ")");
+			}
 		}
 		
 		// Update packet delay and jitter
@@ -594,7 +601,8 @@ public class Client {
 		// Update received bytes and packets
 		stats.receivedBytes += rtp_packet.getSize();
 		stats.receivedPackets++;
-		stats.lastReceivedPacketNb = rtp_packet.getSequenceNumber();
+		if(rtp_packet.getSequenceNumber() >= stats.lastReceivedPacketNb) // Only update last packet number if in order
+			stats.lastReceivedPacketNb = rtp_packet.getSequenceNumber();
 	}
 
 	/**
