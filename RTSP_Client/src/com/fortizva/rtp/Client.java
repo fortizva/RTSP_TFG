@@ -962,6 +962,10 @@ public class Client {
 								// Update video buffer state
 								videoBufferBar.putBufferState(lostPacket.getSequenceNumber(), BufferBar.FrameStatus.RECOVERED);
 								
+								if (verbose) {
+									System.out.println("[FECListener] Recovered lost packet with SeqNum # " + lostPacket.getSequenceNumber());
+								}
+								
 								/* Remove the FEC group packets from the protection buffer
 								 * Also remove packets that belong to older FEC groups
 								 * This is done to avoid keeping old packets in the buffer that are no longer needed.
