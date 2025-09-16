@@ -321,6 +321,12 @@ public class Server extends JFrame {
 						int packetLoss = Integer.parseInt(packetLossStr);
 						if (packetLoss < 0 || packetLoss > 100) {
 							System.out.println("Simulated packet loss must be between 1 and 100. Disabling by default.");
+						} else if(packetLoss == 0) {
+							theServer.chkSimLoss.setSelected(false); // Disable simulated packet loss if percentage is 0
+							theServer.spnPacketLoss.setEnabled(false); // Disable packet loss spinner
+							theServer.lblSimLost.setVisible(false); // Hide the simulated lost packets label
+							theServer.spnPacketLoss.setValue(0); // Set the simulated packet loss percentage to 0
+							
 						} else {
 							theServer.chkSimLoss.setSelected(true); // Enable simulated packet loss
 							theServer.spnPacketLoss.setEnabled(true); // Enable packet loss spinner
