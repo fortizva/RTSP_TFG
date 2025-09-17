@@ -169,20 +169,27 @@ class BufferBar extends JPanel {
         addMouseMotionListener(new MouseMotionListener() {
             @Override
             public void mouseMoved(MouseEvent e) {
-            	if(bufferStates != null && !bufferStates.isEmpty()) {
-	                int width = getWidth() / NUM_FRAMES_DISPLAYED;
-	                int totalWidth = width * NUM_FRAMES_DISPLAYED;
-	                int xOffset = (getWidth() - totalWidth) / 2;
-	                int x = e.getX();
-	                int index = (x - xOffset) / width;
-	                // Only show tooltip for valid rectangles
-	                if (index >= 0 && index < Math.min(NUM_FRAMES_DISPLAYED, bufferStates.size())) {
-	                    int seqNum = bufferStates.keySet().toArray()[index] instanceof Integer ? (Integer) bufferStates.keySet().toArray()[index] : -1;
-	                    setToolTipText("Sequence #: " + seqNum);
-	                } else {
-	                    setToolTipText(null);
-	                }
-            }
+            	if (bufferStates != null && !bufferStates.isEmpty()) {
+                    int width = getWidth() / NUM_FRAMES_DISPLAYED;
+                    int totalWidth = width * NUM_FRAMES_DISPLAYED;
+                    int xOffset = (getWidth() - totalWidth) / 2;
+                    int x = e.getX();
+                    int index = (x - xOffset) / width;
+
+                    // Obtener solo los últimos NUM_FRAMES_DISPLAYED frames
+                    List<Integer> keys = new ArrayList<>(bufferStates.keySet());
+                    if (keys.size() > NUM_FRAMES_DISPLAYED) {
+                        keys = keys.subList(keys.size() - NUM_FRAMES_DISPLAYED, keys.size());
+                    }
+
+                    if (index >= 0 && index < keys.size()) {
+                        int seqNum = keys.get(index);
+                        FrameStatus status = bufferStates.get(seqNum);
+                        setToolTipText("<html>Sequence #: " + seqNum + "<br>Status: " + status+"</html>");
+                    } else {
+                        setToolTipText(null);
+                    }
+            	}
             }
 			@Override
 			public void mouseDragged(MouseEvent e) {			
